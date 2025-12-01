@@ -445,31 +445,34 @@ class DockerHelper:
         
         # Setup volume paths
         guest_os_path_host = os.path.join(dir_deploy, "guestos")
-        config_path_host = os.path.join(dir_deploy, "code/config")
+        vscode_extensions_path_host = os.path.join(dir_deploy, "code/config/extensions")
         qvp_bin_path_host = os.path.join(dir_deploy, "qvp")
         tools_path_host = os.path.join(dir_deploy, "tools")
         arm_path_host = os.path.join(dir_deploy, "tools/ARMCompiler6.16")
         workspace_path_host = os.path.join(dir_deploy, "workspace")
         kvm_path_host = "/dev/kvm"
         
-        # Ensure workspace has proper permissions (0o777 to allow user writes)
-        if os.path.exists(workspace_path_host):
-            try:
-                os.chown(workspace_path_host, 1000, 1000)
-                os.chmod(workspace_path_host, 0o777)
-                logger.debug(f"Updated workspace permissions: {workspace_path_host}")
-            except Exception as e:
-                logger.warning(f"Could not update workspace permissions: {e}")
+        # Ensure workspace and extensions directories have proper permissions (0o777 to allow user writes)
+        for path in [workspace_path_host, vscode_extensions_path_host]:
+            if os.path.exists(path):
+                try:
+                    os.chown(path, 1000, 1000)
+                    os.chmod(path, 0o777)
+                    logger.debug(f"Updated permissions: {path}")
+                except Exception as e:
+                    logger.warning(f"Could not update permissions for {path}: {e}")
         
         # Setup volumes
+        # workspace -> home folder for persistence
+        # code/config/extensions -> .local/share/code-server for VS Code extensions
         volumes = {}
         volume_mounts = [
             (guest_os_path_host, os.getenv("GUEST_OS_MOUNT", "/opt/guestos"), "rw"),
-            (config_path_host, os.getenv("CODE_CONFIG_MOUNT", "/config"), "rw"),
+            (vscode_extensions_path_host, "/home/developer/.local/share/code-server", "rw"),
             (qvp_bin_path_host, os.getenv("QVP_BINARY_MOUNT", "/opt/qvp"), "rw"),
             (tools_path_host, os.getenv("TOOLS_MOUNT", "/opt/tools"), "ro"),
             (arm_path_host, "/usr/local/ARMCompiler6.16", "ro"),
-            (workspace_path_host, os.getenv("WORKSPACE_MOUNT", "/workspace"), "rw"),
+            (workspace_path_host, "/home/developer", "rw"),
             (kvm_path_host, "/dev/kvm", "rw"),
         ]
         
@@ -531,15 +534,17 @@ class DockerHelper:
 
         if valid_dir and valid_sign:
             logger.success("Valid workdir exists")
-            # Ensure workspace has proper permissions even if workdir already exists
+            # Ensure workspace and extensions have proper permissions even if workdir already exists
             workspace_path = os.path.join(dir_deploy, "workspace")
-            if os.path.exists(workspace_path):
-                try:
-                    os.chown(workspace_path, 1000, 1000)
-                    os.chmod(workspace_path, 0o777)  # rwxrwxrwx to allow user writes
-                    logger.info(f"Updated workspace permissions for existing directory: {workspace_path}")
-                except Exception as e:
-                    logger.warning(f"Could not update workspace permissions: {e}")
+            extensions_path = os.path.join(dir_deploy, "code/config/extensions")
+            for path in [workspace_path, extensions_path]:
+                if os.path.exists(path):
+                    try:
+                        os.chown(path, 1000, 1000)
+                        os.chmod(path, 0o777)  # rwxrwxrwx to allow user writes
+                        logger.info(f"Updated permissions for existing directory: {path}")
+                    except Exception as e:
+                        logger.warning(f"Could not update permissions for {path}: {e}")
             return True
 
         logger.warning(f"{dir_error}, {sign_error}")
@@ -573,27 +578,30 @@ class DockerHelper:
                     else:
                         logger.info(f"Skipping existing directory: {dst_path}")
 
-            # Ensure workspace directory exists and has proper permissions
+            # Ensure workspace and extensions directories exist and have proper permissions
+            extensions_path = os.path.join(dir_deploy, "code/config/extensions")
             os.makedirs(workspace_path, exist_ok=True)
+            os.makedirs(extensions_path, exist_ok=True)
             
-            # Set proper ownership and permissions for workspace
-            # Use 1000:1000 (abc user inside container) with 0o777 to allow writes
+            # Set proper ownership and permissions for workspace and extensions
+            # Use 1000:1000 (developer user inside container) with 0o777 to allow writes
             try:
-                # Set ownership recursively for workspace
-                for root, dirs, files in os.walk(workspace_path):
-                    os.chown(root, 1000, 1000)
-                    os.chmod(root, 0o777)  # rwxrwxrwx for directories
-                    for d in dirs:
-                        dir_path = os.path.join(root, d)
-                        os.chown(dir_path, 1000, 1000)
-                        os.chmod(dir_path, 0o777)
-                    for f in files:
-                        file_path = os.path.join(root, f)
-                        os.chown(file_path, 1000, 1000)
-                        os.chmod(file_path, 0o666)  # rw-rw-rw- for files
-                logger.info(f"Set workspace permissions during setup: {workspace_path}")
+                for target_path in [workspace_path, extensions_path]:
+                    # Set ownership recursively
+                    for root, dirs, files in os.walk(target_path):
+                        os.chown(root, 1000, 1000)
+                        os.chmod(root, 0o777)  # rwxrwxrwx for directories
+                        for d in dirs:
+                            dir_path = os.path.join(root, d)
+                            os.chown(dir_path, 1000, 1000)
+                            os.chmod(dir_path, 0o777)
+                        for f in files:
+                            file_path = os.path.join(root, f)
+                            os.chown(file_path, 1000, 1000)
+                            os.chmod(file_path, 0o666)  # rw-rw-rw- for files
+                    logger.info(f"Set permissions during setup: {target_path}")
             except Exception as e:
-                logger.warning(f"Could not set workspace permissions during setup: {e}")
+                logger.warning(f"Could not set permissions during setup: {e}")
 
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             unique_hash = hashlib.sha256(str(uuid.uuid4()).encode()).hexdigest()

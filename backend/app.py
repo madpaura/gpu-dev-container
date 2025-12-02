@@ -1594,6 +1594,10 @@ app.register_blueprint(build_bp)
 from api.upload_routes import upload_bp
 app.register_blueprint(upload_bp)
 
+# Agent Deployment endpoints
+from api.agent_deploy_routes import agent_deploy_bp
+app.register_blueprint(agent_deploy_bp)
+
 # Helper function for admin authentication
 def require_admin_auth():
     """Helper function for admin authentication."""

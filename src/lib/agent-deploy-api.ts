@@ -4,7 +4,8 @@
  * API client for deploying agents to remote servers.
  */
 
-const API_BASE = '/api/admin/agent-deploy';
+const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}`;
+const API_BASE = `${API_BASE_URL}/api/admin/agent-deploy`;
 
 export interface SSHCredentials {
   server_ip: string;

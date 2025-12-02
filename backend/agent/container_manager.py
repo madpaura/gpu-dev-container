@@ -459,6 +459,15 @@ class DockerHelper:
                     os.chown(path, 1000, 1000)
                     os.chmod(path, 0o777)
                     logger.debug(f"Updated permissions: {path}")
+                except PermissionError:
+                    # Try with sudo if not running as root
+                    try:
+                        import subprocess
+                        subprocess.run(["sudo", "chown", "-R", "1000:1000", path], check=True)
+                        subprocess.run(["sudo", "chmod", "-R", "777", path], check=True)
+                        logger.debug(f"Updated permissions via sudo: {path}")
+                    except Exception as e:
+                        logger.warning(f"Could not update permissions for {path}: {e}")
                 except Exception as e:
                     logger.warning(f"Could not update permissions for {path}: {e}")
         
@@ -543,6 +552,15 @@ class DockerHelper:
                         os.chown(path, 1000, 1000)
                         os.chmod(path, 0o777)  # rwxrwxrwx to allow user writes
                         logger.info(f"Updated permissions for existing directory: {path}")
+                    except PermissionError:
+                        # Try with sudo if not running as root
+                        try:
+                            import subprocess
+                            subprocess.run(["sudo", "chown", "-R", "1000:1000", path], check=True)
+                            subprocess.run(["sudo", "chmod", "-R", "777", path], check=True)
+                            logger.info(f"Updated permissions via sudo: {path}")
+                        except Exception as e:
+                            logger.warning(f"Could not update permissions for {path}: {e}")
                     except Exception as e:
                         logger.warning(f"Could not update permissions for {path}: {e}")
             return True
@@ -585,8 +603,8 @@ class DockerHelper:
             
             # Set proper ownership and permissions for workspace and extensions
             # Use 1000:1000 (developer user inside container) with 0o777 to allow writes
-            try:
-                for target_path in [workspace_path, extensions_path]:
+            for target_path in [workspace_path, extensions_path]:
+                try:
                     # Set ownership recursively
                     for root, dirs, files in os.walk(target_path):
                         os.chown(root, 1000, 1000)
@@ -600,8 +618,17 @@ class DockerHelper:
                             os.chown(file_path, 1000, 1000)
                             os.chmod(file_path, 0o666)  # rw-rw-rw- for files
                     logger.info(f"Set permissions during setup: {target_path}")
-            except Exception as e:
-                logger.warning(f"Could not set permissions during setup: {e}")
+                except PermissionError:
+                    # Try with sudo if not running as root
+                    try:
+                        import subprocess
+                        subprocess.run(["sudo", "chown", "-R", "1000:1000", target_path], check=True)
+                        subprocess.run(["sudo", "chmod", "-R", "777", target_path], check=True)
+                        logger.info(f"Set permissions via sudo during setup: {target_path}")
+                    except Exception as e:
+                        logger.warning(f"Could not set permissions for {target_path}: {e}")
+                except Exception as e:
+                    logger.warning(f"Could not set permissions during setup for {target_path}: {e}")
 
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             unique_hash = hashlib.sha256(str(uuid.uuid4()).encode()).hexdigest()

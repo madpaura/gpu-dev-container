@@ -34,13 +34,13 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useAuth } from '@/hooks/useAuth';
 import { usePermissions } from '@/hooks/usePermissions';
-import { 
-  registryApi, 
-  projectApi, 
-  buildApi, 
-  Registry, 
-  BuildProject, 
-  Build 
+import {
+  registryApi,
+  projectApi,
+  buildApi,
+  Registry,
+  BuildProject,
+  Build
 } from '@/lib/build-api';
 import { StatCard } from '@/components/StatCard';
 import {
@@ -71,7 +71,7 @@ export const AdminDockerBuilder: React.FC = () => {
   const { user } = useAuth();
   const { can } = usePermissions();
   const [activeTab, setActiveTab] = useState('projects');
-  
+
   // Registries state
   const [registries, setRegistries] = useState<Registry[]>([]);
   const [registryDialogOpen, setRegistryDialogOpen] = useState(false);
@@ -82,7 +82,7 @@ export const AdminDockerBuilder: React.FC = () => {
   const [testingConnection, setTestingConnection] = useState<number | null>(null);
   const [registryImages, setRegistryImages] = useState<Array<{ name: string; tags: Array<{ name: string; full_name: string }> }>>([]);
   const [loadingImages, setLoadingImages] = useState(false);
-  
+
   // Projects state
   const [projects, setProjects] = useState<BuildProject[]>([]);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
@@ -94,7 +94,7 @@ export const AdminDockerBuilder: React.FC = () => {
   const [selectedBuilds, setSelectedBuilds] = useState<Build[]>([]);
   const [isEditingProject, setIsEditingProject] = useState(false);
   const [buildInProgress, setBuildInProgress] = useState<number | null>(null);
-  
+
   // Dockerfile editor state
   const [dockerfileContent, setDockerfileContent] = useState('');
   const [originalDockerfile, setOriginalDockerfile] = useState('');
@@ -103,13 +103,13 @@ export const AdminDockerBuilder: React.FC = () => {
   const [editorBuildStatus, setEditorBuildStatus] = useState<'idle' | 'building' | 'success' | 'failed'>('idle');
   const [editorBuildLogs, setEditorBuildLogs] = useState('');
   const [commitMessage, setCommitMessage] = useState('');
-  
+
   // Build logs dialog state
   const [logsDialogOpen, setLogsDialogOpen] = useState(false);
   const [viewingBuildLogs, setViewingBuildLogs] = useState('');
   const [viewingBuildInfo, setViewingBuildInfo] = useState<Build | null>(null);
   const [loadingLogs, setLoadingLogs] = useState(false);
-  
+
   // Common state
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -146,14 +146,14 @@ export const AdminDockerBuilder: React.FC = () => {
 
   const fetchData = async () => {
     if (!user?.token) return;
-    
+
     setLoading(true);
     try {
       const [projectsRes, registriesRes] = await Promise.all([
         projectApi.getProjects(user.token),
         registryApi.getRegistries(user.token),
       ]);
-      
+
       if (projectsRes.success && projectsRes.data) {
         setProjects(projectsRes.data.projects);
       }
@@ -203,7 +203,7 @@ export const AdminDockerBuilder: React.FC = () => {
 
   const handleSaveRegistry = async () => {
     if (!user?.token) return;
-    
+
     try {
       if (isEditingRegistry && selectedRegistry) {
         const response = await registryApi.updateRegistry(user.token, selectedRegistry.id, registryFormData);
@@ -218,7 +218,7 @@ export const AdminDockerBuilder: React.FC = () => {
           return;
         }
       }
-      
+
       setRegistryDialogOpen(false);
       fetchData();
     } catch (err) {
@@ -228,7 +228,7 @@ export const AdminDockerBuilder: React.FC = () => {
 
   const handleDeleteRegistry = async () => {
     if (!user?.token || !selectedRegistry) return;
-    
+
     try {
       const response = await registryApi.deleteRegistry(user.token, selectedRegistry.id);
       if (response.success) {
@@ -245,7 +245,7 @@ export const AdminDockerBuilder: React.FC = () => {
 
   const handleTestConnection = async (registry: Registry) => {
     if (!user?.token) return;
-    
+
     setTestingConnection(registry.id);
     try {
       const response = await registryApi.testConnection(user.token, registry.id);
@@ -263,12 +263,12 @@ export const AdminDockerBuilder: React.FC = () => {
 
   const handleViewImages = async (registry: Registry) => {
     if (!user?.token) return;
-    
+
     setSelectedRegistry(registry);
     setLoadingImages(true);
     setImagesDialogOpen(true);
     setRegistryImages([]);
-    
+
     try {
       // Fetch images from registry
       const imagesRes = await registryApi.getRegistryImages(user.token, registry.id);
@@ -331,13 +331,13 @@ export const AdminDockerBuilder: React.FC = () => {
 
   const handleSaveProject = async () => {
     if (!user?.token) return;
-    
+
     try {
       const data = {
         ...projectFormData,
         default_registry_id: projectFormData.default_registry_id ? parseInt(projectFormData.default_registry_id) : null,
       };
-      
+
       if (isEditingProject && selectedProject) {
         const response = await projectApi.updateProject(user.token, selectedProject.id, data);
         if (!response.success) {
@@ -351,7 +351,7 @@ export const AdminDockerBuilder: React.FC = () => {
           return;
         }
       }
-      
+
       setProjectDialogOpen(false);
       fetchData();
     } catch (err) {
@@ -361,7 +361,7 @@ export const AdminDockerBuilder: React.FC = () => {
 
   const handleDeleteProject = async () => {
     if (!user?.token || !selectedProject) return;
-    
+
     try {
       const response = await projectApi.deleteProject(user.token, selectedProject.id);
       if (response.success) {
@@ -387,14 +387,14 @@ export const AdminDockerBuilder: React.FC = () => {
 
   const handleStartBuild = async () => {
     if (!user?.token || !selectedProject) return;
-    
+
     setBuildInProgress(selectedProject.id);
     try {
       const response = await buildApi.startBuild(user.token, selectedProject.id, {
         tag: buildFormData.tag || undefined,
         registry_id: buildFormData.registry_id ? parseInt(buildFormData.registry_id) : undefined,
       });
-      
+
       if (response.success) {
         setBuildDialogOpen(false);
         fetchData();
@@ -410,7 +410,7 @@ export const AdminDockerBuilder: React.FC = () => {
 
   const handleViewBuilds = async (project: BuildProject) => {
     if (!user?.token) return;
-    
+
     setSelectedProject(project);
     try {
       const response = await buildApi.getProjectBuilds(user.token, project.id);
@@ -425,12 +425,12 @@ export const AdminDockerBuilder: React.FC = () => {
 
   const handleViewBuildLogs = async (build: Build) => {
     if (!user?.token) return;
-    
+
     setViewingBuildInfo(build);
     setLogsDialogOpen(true);
     setLoadingLogs(true);
     setViewingBuildLogs('');
-    
+
     try {
       const response = await buildApi.getBuildLogs(user.token, build.id);
       if (response.success && response.data) {
@@ -447,7 +447,7 @@ export const AdminDockerBuilder: React.FC = () => {
 
   const handleViewLastBuildLogs = async (project: BuildProject) => {
     if (!user?.token) return;
-    
+
     // First get the latest build for this project
     try {
       const response = await buildApi.getProjectBuilds(user.token, project.id, 1);
@@ -464,14 +464,14 @@ export const AdminDockerBuilder: React.FC = () => {
 
   const handleOpenDockerfileEditor = async (project: BuildProject) => {
     if (!user?.token) return;
-    
+
     setSelectedProject(project);
     setLoadingDockerfile(true);
     setDockerfileEditorOpen(true);
     setEditorBuildStatus('idle');
     setEditorBuildLogs('');
     setCommitMessage('');
-    
+
     try {
       const response = await projectApi.getDockerfile(user.token, project.id);
       if (response.success && response.data) {
@@ -508,35 +508,35 @@ CMD ["bash"]
 
   const handleEditorBuild = async () => {
     if (!user?.token || !selectedProject) return;
-    
+
     setEditorBuildStatus('building');
     setEditorBuildLogs('Starting build...\n');
-    
+
     try {
       const response = await buildApi.startBuild(user.token, selectedProject.id, {
         registry_id: selectedProject.default_registry_id || undefined,
       });
-      
+
       // Response has build_id and tag at top level, not under data
       const buildId = response.build_id;
       const tag = response.tag;
-      
+
       if (response.success && buildId) {
         setEditorBuildLogs(prev => prev + `Build started with ID: ${buildId}, tag: ${tag}\n`);
-        
+
         // Poll for build status
         const pollInterval = setInterval(async () => {
           try {
             const statusRes = await buildApi.getBuildStatus(user.token, buildId);
             if (statusRes.success && statusRes.data) {
               const build = statusRes.data;
-              
+
               // Get logs
               const logsRes = await buildApi.getBuildLogs(user.token, buildId);
               if (logsRes.success && logsRes.data) {
                 setEditorBuildLogs(logsRes.data.logs || '');
               }
-              
+
               if (build.status === 'completed') {
                 clearInterval(pollInterval);
                 setEditorBuildStatus('success');
@@ -552,7 +552,7 @@ CMD ["bash"]
             console.error('Error polling build status');
           }
         }, 2000);
-        
+
         // Stop polling after 10 minutes
         setTimeout(() => clearInterval(pollInterval), 600000);
       } else {
@@ -567,7 +567,7 @@ CMD ["bash"]
 
   const handleCommitDockerfile = async () => {
     if (!user?.token || !selectedProject) return;
-    
+
     setSavingDockerfile(true);
     try {
       const response = await projectApi.saveDockerfile(
@@ -576,7 +576,7 @@ CMD ["bash"]
         dockerfileContent,
         commitMessage || 'Update Dockerfile'
       );
-      
+
       if (response.success) {
         setOriginalDockerfile(dockerfileContent);
         setCommitMessage('');
@@ -708,7 +708,7 @@ CMD ["bash"]
               Registries
             </TabsTrigger>
           </TabsList>
-          
+
           {activeTab === 'projects' && can('manage_projects') && (
             <Button onClick={() => handleOpenProjectDialog()}>
               <Plus className="w-4 h-4 mr-2" />
@@ -1079,7 +1079,7 @@ CMD ["bash"]
                 />
               </div>
               <div>
-                <Label htmlFor="proj_git_pat">Git PAT (for private repos)</Label>
+                <Label htmlFor="proj_git_pat">Git PAT (for GitHub, GitLab, Bitbucket)</Label>
                 <Input
                   id="proj_git_pat"
                   type="password"
@@ -1087,6 +1087,9 @@ CMD ["bash"]
                   onChange={(e) => setProjectFormData({ ...projectFormData, git_pat: e.target.value })}
                   placeholder={isEditingProject ? 'Leave blank to keep current' : 'Personal Access Token'}
                 />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Required for private repositories. Supports GitHub, GitLab, and Bitbucket.
+                </p>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -1355,7 +1358,7 @@ CMD ["bash"]
               Dockerfile Editor: {selectedProject?.name}
             </DialogTitle>
           </DialogHeader>
-          
+
           {loadingDockerfile ? (
             <div className="flex-1 flex items-center justify-center">
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -1388,7 +1391,7 @@ CMD ["bash"]
                     </Button>
                   </div>
                 </div>
-                
+
                 {/* Code Editor */}
                 <div className="flex-1 border rounded-lg overflow-hidden bg-[#1e1e1e]">
                   <textarea
@@ -1403,7 +1406,7 @@ CMD ["bash"]
                     placeholder="# Enter your Dockerfile content here..."
                   />
                 </div>
-                
+
                 {/* Commit Section - Only show after successful build */}
                 {editorBuildStatus === 'success' && hasDockerfileChanges && (
                   <div className="mt-4 p-4 border rounded-lg bg-green-500/5 border-green-500/20">
@@ -1432,7 +1435,7 @@ CMD ["bash"]
                   </div>
                 )}
               </div>
-              
+
               {/* Build Output Panel */}
               <div className="w-[400px] flex flex-col min-h-0">
                 <div className="flex items-center gap-2 mb-2">
@@ -1456,7 +1459,7 @@ CMD ["bash"]
               </div>
             </div>
           )}
-          
+
           <DialogFooter className="flex-shrink-0 mt-4">
             <Button variant="outline" onClick={() => setDockerfileEditorOpen(false)}>
               <X className="w-4 h-4 mr-2" />
@@ -1480,7 +1483,7 @@ CMD ["bash"]
               )}
             </DialogTitle>
           </DialogHeader>
-          
+
           {viewingBuildInfo && (
             <div className="flex items-center gap-4 text-sm text-muted-foreground flex-shrink-0">
               <span>Started: {new Date(viewingBuildInfo.started_at).toLocaleString()}</span>
@@ -1490,7 +1493,7 @@ CMD ["bash"]
               {getStatusBadge(viewingBuildInfo.status)}
             </div>
           )}
-          
+
           <div className="flex-1 min-h-0 mt-4">
             {loadingLogs ? (
               <div className="flex items-center justify-center h-full">
@@ -1504,7 +1507,7 @@ CMD ["bash"]
               </div>
             )}
           </div>
-          
+
           <DialogFooter className="flex-shrink-0 mt-4">
             <Button variant="outline" onClick={() => setLogsDialogOpen(false)}>
               Close

@@ -236,7 +236,8 @@ class BuildService:
                     temp_dir,
                     project.get('dockerfile_path', 'Dockerfile'),
                     commit_message,
-                    project.get('git_pat')
+                    project.get('git_pat'),
+                    project.get('repo_url')
                 )
                 
                 if push_result['success']:
@@ -455,25 +456,86 @@ class BuildService:
     
     def _clone_repo(self, repo_url: str, branch: str, pat: str,
                    target_dir: str) -> Dict[str, Any]:
-        """Clone a git repository."""
+        """Clone a git repository.
+        
+        Supports GitHub, GitLab, and Bitbucket with PAT authentication.
+        Handles both http:// and https:// URLs.
+        
+        For Bitbucket Server with Basic Auth disabled, uses Bearer token via http.extraHeader.
+        """
         try:
-            # Insert PAT into URL if provided
-            if pat:
-                if 'github.com' in repo_url:
-                    repo_url = repo_url.replace('https://', f'https://{pat}@')
-                elif 'gitlab.com' in repo_url:
-                    repo_url = repo_url.replace('https://', f'https://oauth2:{pat}@')
+            # Set environment to prevent git from prompting for credentials
+            env = os.environ.copy()
+            env['GIT_TERMINAL_PROMPT'] = '0'
+            env['GIT_ASKPASS'] = ''
             
-            cmd = ['git', 'clone', '--depth', '1', '--branch', branch, repo_url, target_dir]
+            # Determine if this is Bitbucket Server (self-hosted) vs Bitbucket Cloud
+            is_bitbucket_server = (
+                'bitbucket' in repo_url.lower() and 
+                'bitbucket.org' not in repo_url.lower()
+            )
+            
+            # Also detect by port - Bitbucket Server commonly uses ports like 7990, 7999, etc.
+            import re
+            port_match = re.search(r':(\d+)/', repo_url)
+            if port_match:
+                port = int(port_match.group(1))
+                # Ports other than 80/443 typically indicate self-hosted
+                if port not in (80, 443):
+                    is_bitbucket_server = True
+            
+            if pat and is_bitbucket_server:
+                # Bitbucket Server with HTTP Access Token
+                # Use Bearer token authentication via http.extraHeader
+                # This works when Basic Auth is disabled on Bitbucket Server
+                logger.info(f"Using Bearer token authentication for Bitbucket Server: {repo_url}")
+                cmd = [
+                    'git', '-c', f'http.extraHeader=Authorization: Bearer {pat}',
+                    'clone', '--depth', '1', f'--branch={branch}',
+                    '--', repo_url, target_dir
+                ]
+            elif pat:
+                # For other providers, embed PAT in URL
+                if repo_url.startswith('https://'):
+                    protocol = 'https://'
+                elif repo_url.startswith('http://'):
+                    protocol = 'http://'
+                else:
+                    protocol = None
+                
+                if protocol:
+                    if 'github.com' in repo_url:
+                        # GitHub: {protocol}{PAT}@github.com/...
+                        repo_url = repo_url.replace(protocol, f'{protocol}{pat}@')
+                    elif 'gitlab.com' in repo_url or 'gitlab' in repo_url.lower():
+                        # GitLab: {protocol}oauth2:{PAT}@gitlab.com/...
+                        repo_url = repo_url.replace(protocol, f'{protocol}oauth2:{pat}@')
+                    elif 'bitbucket.org' in repo_url:
+                        # Bitbucket Cloud: {protocol}x-token-auth:{PAT}@bitbucket.org/...
+                        repo_url = repo_url.replace(protocol, f'{protocol}x-token-auth:{pat}@')
+                    else:
+                        # Generic git hosting - try using PAT as username
+                        repo_url = repo_url.replace(protocol, f'{protocol}{pat}@')
+                
+                cmd = ['git', 'clone', '--depth', '1', '--branch', branch, repo_url, target_dir]
+            else:
+                # No PAT provided
+                cmd = ['git', 'clone', '--depth', '1', '--branch', branch, repo_url, target_dir]
+            
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=120
+                timeout=120,
+                env=env
             )
             
             if result.returncode != 0:
-                return {'success': False, 'error': f'Git clone failed: {result.stderr}'}
+                # Sanitize error message to not expose PAT
+                error_msg = result.stderr
+                if pat:
+                    error_msg = error_msg.replace(pat, '***')
+                return {'success': False, 'error': f'Git clone failed: {error_msg}'}
             
             return {'success': True}
             
@@ -483,8 +545,11 @@ class BuildService:
             return {'success': False, 'error': str(e)}
     
     def _commit_and_push(self, repo_dir: str, file_path: str,
-                        commit_message: str, pat: str) -> Dict[str, Any]:
-        """Commit changes and push to remote."""
+                        commit_message: str, pat: str, repo_url: str = None) -> Dict[str, Any]:
+        """Commit changes and push to remote.
+        
+        For Bitbucket Server with HTTP Access Tokens, uses Bearer auth via http.extraHeader.
+        """
         try:
             # Configure git
             subprocess.run(['git', 'config', 'user.email', 'docker-builder@local'],
@@ -504,19 +569,51 @@ class BuildService:
             )
             
             if result.returncode != 0 and 'nothing to commit' not in result.stdout:
-                return {'success': False, 'error': f'Git commit failed: {result.stderr}'}
+                error_msg = result.stderr
+                if pat:
+                    error_msg = error_msg.replace(pat, '***')
+                return {'success': False, 'error': f'Git commit failed: {error_msg}'}
             
-            # Push
-            result = subprocess.run(
-                ['git', 'push'],
-                cwd=repo_dir,
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
+            # Determine if this is Bitbucket Server for push command
+            is_bitbucket_server = False
+            if repo_url:
+                is_bitbucket_server = (
+                    'bitbucket' in repo_url.lower() and 
+                    'bitbucket.org' not in repo_url.lower()
+                )
+                # Also detect by port
+                import re
+                port_match = re.search(r':(\d+)/', repo_url)
+                if port_match:
+                    port = int(port_match.group(1))
+                    if port not in (80, 443):
+                        is_bitbucket_server = True
+            
+            # Push with appropriate authentication
+            if pat and is_bitbucket_server:
+                # Use Bearer token for Bitbucket Server
+                result = subprocess.run(
+                    ['git', '-c', f'http.extraHeader=Authorization: Bearer {pat}', 'push'],
+                    cwd=repo_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+            else:
+                result = subprocess.run(
+                    ['git', 'push'],
+                    cwd=repo_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
             
             if result.returncode != 0:
-                return {'success': False, 'error': f'Git push failed: {result.stderr}'}
+                # Sanitize error message to not expose PAT
+                error_msg = result.stderr
+                if pat:
+                    error_msg = error_msg.replace(pat, '***')
+                return {'success': False, 'error': f'Git push failed: {error_msg}'}
             
             return {'success': True, 'message': 'Changes pushed successfully'}
             

@@ -253,5 +253,47 @@ class AgentService:
             logger.error(f"Error managing container on agent {agent_ip}:{self.agent_port}: {e}")
             return None
 
+    def recreate_user_container(self, agent_ip: str, container_name: str, wipe_data: bool = False) -> Optional[Dict[str, Any]]:
+        """Recreate a user's container with optional data wipe.
+        
+        Args:
+            agent_ip: IP address of the agent
+            container_name: Name of the container
+            wipe_data: If True, wipe user workspace data and start fresh
+            
+        Returns:
+            Dict with success status and details, or None on failure
+        """
+        try:
+            logger.debug(f"Recreating container {container_name} on agent {agent_ip}:{self.agent_port} (wipe_data={wipe_data})")
+            
+            url = f"http://{agent_ip}:{self.agent_port}/api/containers/{container_name}/recreate"
+            
+            response = requests.post(
+                url, 
+                json={'wipe_data': wipe_data},
+                timeout=60  # Longer timeout for recreation
+            )
+            if response.status_code == 200:
+                result = response.json()
+                logger.debug(f"Container recreate response: {result}")
+                return result
+            else:
+                logger.warning(f"Agent {agent_ip}:{self.agent_port} returned status code {response.status_code}")
+                try:
+                    error_data = response.json()
+                    return error_data
+                except:
+                    return {'success': False, 'error': f'HTTP {response.status_code}'}
+        except requests.exceptions.Timeout:
+            logger.warning(f"Timeout recreating container on agent {agent_ip}:{self.agent_port}")
+            return {'success': False, 'error': 'Request timeout - recreation may still be in progress'}
+        except requests.exceptions.ConnectionError:
+            logger.warning(f"Connection failed to agent {agent_ip}:{self.agent_port}")
+            return {'success': False, 'error': 'Connection failed to agent'}
+        except Exception as e:
+            logger.error(f"Error recreating container on agent {agent_ip}:{self.agent_port}: {e}")
+            return {'success': False, 'error': str(e)}
+
 # Global instance for backward compatibility
 agent_service = AgentService()

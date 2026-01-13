@@ -1301,6 +1301,179 @@ def restart_user_container():
         return jsonify({'success': False, 'error': 'Failed to restart container'}), 500
 
 
+@app.route('/api/user/container/recreate', methods=['POST'])
+def recreate_user_container():
+    """Recreate user's container with optional data wipe.
+    
+    POST body:
+        - wipe_data: (bool) If true, wipe user workspace data and start fresh.
+                     If false, preserve existing data (default).
+    """
+    # Check session authentication
+    session, error_response, status_code = require_session_auth()
+    if error_response:
+        return error_response, status_code
+    
+    username = session.get('username')
+    
+    try:
+        data = request.get_json() or {}
+        wipe_data = data.get('wipe_data', False)
+        
+        logger.info(f"User {username} requesting container recreation (wipe_data={wipe_data})")
+        
+        # Get user data for container and server information
+        user_data = db.get_user_by_username(username)
+        if not user_data:
+            return jsonify({'success': False, 'error': 'User not found'}), 404
+        
+        # Parse user metadata for container and server info
+        metadata = user_service._parse_user_metadata(user_data.get('metadata'))
+        container_name = metadata.get('container', {}).get('name')
+        server_assignment = metadata.get('server_assignment')
+        
+        if not container_name:
+            return jsonify({'success': False, 'error': 'No container assigned to user'}), 400
+        
+        if not server_assignment or server_assignment == 'NA':
+            return jsonify({'success': False, 'error': 'No server assigned to user'}), 400
+        
+        # Get server IP
+        server_ip = user_service._get_server_ip_from_assignment(server_assignment)
+        if not server_ip:
+            return jsonify({'success': False, 'error': 'Could not determine server IP'}), 400
+        
+        # Recreate container via agent
+        result = agent_service.recreate_user_container(server_ip, container_name, wipe_data=wipe_data)
+        
+        if result and result.get('success'):
+            # Log the action
+            action_desc = 'with data wipe' if wipe_data else 'preserving data'
+            db.log_audit_event(
+                username=username,
+                action_type='container_recreate',
+                action_details={
+                    'message': f'User {username} recreated container {container_name} {action_desc}',
+                    'container_name': container_name,
+                    'server_ip': server_ip,
+                    'wipe_data': wipe_data,
+                    'container_stopped': result.get('container_stopped', False),
+                    'container_removed': result.get('container_removed', False),
+                    'data_wiped': result.get('data_wiped', False),
+                    'container_created': result.get('container_created', False)
+                },
+                ip_address=get_client_ip(request)
+            )
+            
+            # Add to app logs
+            add_app_log('INFO', f'Container {container_name} recreated successfully {action_desc}', username, get_client_ip(request))
+            
+            return jsonify({
+                'success': True, 
+                'message': result.get('message', 'Container recreated successfully'),
+                'data_wiped': result.get('data_wiped', False)
+            })
+        else:
+            error_msg = result.get('error', result.get('message', 'Failed to recreate container')) if result else 'Agent not available'
+            add_app_log('ERROR', f'Failed to recreate container {container_name}: {error_msg}', username, get_client_ip(request))
+            return jsonify({'success': False, 'error': error_msg}), 500
+            
+    except Exception as e:
+        logger.error(f"Error recreating container for user {username}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to recreate container'}), 500
+
+
+@app.route('/api/admin/users/<user_id>/container/recreate', methods=['POST'])
+def admin_recreate_user_container(user_id):
+    """Admin endpoint to recreate a user's container with optional data wipe.
+    
+    POST body:
+        - wipe_data: (bool) If true, wipe user workspace data and start fresh.
+                     If false, preserve existing data (default).
+    """
+    # Check admin authentication
+    session, error_response, status_code = require_admin_auth()
+    if error_response:
+        return error_response, status_code
+    
+    admin_username = session.get('username')
+    
+    try:
+        data = request.get_json() or {}
+        wipe_data = data.get('wipe_data', False)
+        
+        # Get user data
+        user_data = db.get_user_by_id(int(user_id))
+        if not user_data:
+            return jsonify({'success': False, 'error': 'User not found'}), 404
+        
+        target_username = user_data.get('username')
+        logger.info(f"Admin {admin_username} requesting container recreation for user {target_username} (wipe_data={wipe_data})")
+        
+        # Parse user metadata for container and server info
+        metadata = user_service._parse_user_metadata(user_data.get('metadata'))
+        container_name = metadata.get('container', {}).get('name')
+        server_assignment = metadata.get('server_assignment')
+        
+        if not container_name:
+            return jsonify({'success': False, 'error': 'No container assigned to user'}), 400
+        
+        if not server_assignment or server_assignment == 'NA':
+            return jsonify({'success': False, 'error': 'No server assigned to user'}), 400
+        
+        # Get server IP
+        server_ip = user_service._get_server_ip_from_assignment(server_assignment)
+        if not server_ip:
+            return jsonify({'success': False, 'error': 'Could not determine server IP'}), 400
+        
+        # Recreate container via agent
+        result = agent_service.recreate_user_container(server_ip, container_name, wipe_data=wipe_data)
+        
+        if result and result.get('success'):
+            # Log the action
+            action_desc = 'with data wipe' if wipe_data else 'preserving data'
+            db.log_audit_event(
+                username=admin_username,
+                action_type='admin_container_recreate',
+                action_details={
+                    'message': f'Admin {admin_username} recreated container for user {target_username} {action_desc}',
+                    'target_user': target_username,
+                    'target_user_id': user_id,
+                    'container_name': container_name,
+                    'server_ip': server_ip,
+                    'wipe_data': wipe_data,
+                    'container_stopped': result.get('container_stopped', False),
+                    'container_removed': result.get('container_removed', False),
+                    'data_wiped': result.get('data_wiped', False),
+                    'container_created': result.get('container_created', False)
+                },
+                ip_address=get_client_ip(request)
+            )
+            
+            # Add to app logs
+            add_app_log(
+                'INFO', 
+                f'Admin {admin_username} recreated container {container_name} for user {target_username} {action_desc}', 
+                admin_username, 
+                get_client_ip(request)
+            )
+            
+            return jsonify({
+                'success': True, 
+                'message': result.get('message', 'Container recreated successfully'),
+                'data_wiped': result.get('data_wiped', False),
+                'target_user': target_username
+            })
+        else:
+            error_msg = result.get('error', result.get('message', 'Failed to recreate container')) if result else 'Agent not available'
+            add_app_log('ERROR', f'Admin failed to recreate container {container_name} for user {target_username}: {error_msg}', admin_username, get_client_ip(request))
+            return jsonify({'success': False, 'error': error_msg}), 500
+            
+    except Exception as e:
+        logger.error(f"Error recreating container for user {user_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to recreate container'}), 500
+
+
 @app.route('/api/user/logs', methods=['GET'])
 def get_user_logs():
     """Get user-specific logs"""

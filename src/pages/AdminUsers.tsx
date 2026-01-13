@@ -4,19 +4,23 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Badge } from '../components/ui/badge';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { 
-  Users, 
-  Container, 
-  Server, 
-  Plus, 
-  Edit, 
+import {
+  Users,
+  Container,
+  Server,
+  Plus,
+  Edit,
   Trash2,
   Circle,
   Loader2,
   RefreshCw,
   KeyRound,
   Code,
-  BookOpen
+  BookOpen,
+  RefreshCcw,
+  AlertTriangle,
+  X,
+  RotateCcw
 } from 'lucide-react';
 import { adminApi, type AdminUser, type AdminStats, type UserApprovalResponse, type ContainerCreationResult } from '../lib/api';
 import { useAuth } from '../hooks/useAuth';
@@ -51,10 +55,10 @@ const getStatusColor = (status: string) => {
 };
 
 const getContainerStatusIcon = (status: string) => {
-  const color = status === 'running' ? 'text-green-500' : 
-                status === 'stopped' ? 'text-yellow-500' :
-                status === 'failed' ? 'text-red-500' :
-                status === 'pending' ? 'text-gray-400' : 'text-red-500';
+  const color = status === 'running' ? 'text-green-500' :
+    status === 'stopped' ? 'text-yellow-500' :
+      status === 'failed' ? 'text-red-500' :
+        status === 'pending' ? 'text-gray-400' : 'text-red-500';
   return <Circle className={`w-2 h-2 fill-current ${color}`} />;
 };
 
@@ -76,10 +80,13 @@ export const AdminUsers: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPasswordResetDialogOpen, setIsPasswordResetDialogOpen] = useState(false);
   const [userToResetPassword, setUserToResetPassword] = useState<AdminUser | null>(null);
+  const [isRecreateModalOpen, setIsRecreateModalOpen] = useState(false);
+  const [userToRecreate, setUserToRecreate] = useState<AdminUser | null>(null);
+  const [isRecreating, setIsRecreating] = useState(false);
 
   const fetchData = async (isRefresh = false) => {
     if (!user?.token) return;
-    
+
     try {
       if (isRefresh) {
         setIsRefreshing(true);
@@ -87,18 +94,18 @@ export const AdminUsers: React.FC = () => {
         setIsLoading(true);
       }
       setError(null);
-      
+
       const [usersResponse, statsResponse] = await Promise.all([
         adminApi.getAdminUsers(user.token),
         adminApi.getAdminStats(user.token)
       ]);
-      
+
       if (usersResponse.success && usersResponse.data) {
         setUsers(usersResponse.data.users);
       } else {
         setError(usersResponse.error || 'Failed to fetch users');
       }
-      
+
       if (statsResponse.success && statsResponse.data) {
         setStats(statsResponse.data.stats);
       }
@@ -130,13 +137,13 @@ export const AdminUsers: React.FC = () => {
 
   const handleConfirmedDelete = async () => {
     if (!user?.token || !userToDelete) return;
-    
+
     try {
       setIsDeleting(true);
       const response = await adminApi.deleteUser(userToDelete, user.token, deleteWorkspace);
       if (response.success) {
-        const message = deleteWorkspace && response.data?.workspace_deleted 
-          ? 'User and workspace deleted successfully!' 
+        const message = deleteWorkspace && response.data?.workspace_deleted
+          ? 'User and workspace deleted successfully!'
           : 'User deleted successfully!';
         success(message);
         setUsers(users.filter(u => u.id !== userToDelete));
@@ -168,7 +175,7 @@ export const AdminUsers: React.FC = () => {
 
   const handleSaveUser = async (userId: string, userData: Partial<AdminUser>) => {
     if (!user?.token) return;
-    
+
     try {
       const response = await adminApi.updateUser(userId, userData, user.token);
       if (response.success) {
@@ -185,12 +192,12 @@ export const AdminUsers: React.FC = () => {
 
   const handleApproveUser = async (userId: string, server: string, resources: { cpu: string; ram: string; gpu: string }) => {
     if (!user?.token) return;
-    
+
     try {
       const response = await adminApi.approveUser(userId, server, resources, user.token);
       if (response.success && response.data) {
         const { container_result, user_approved } = response.data;
-        
+
         if (user_approved) {
           if (container_result.success) {
             success(`User approved successfully! Container created: ${container_result.container?.name || 'Unknown'}`);
@@ -200,7 +207,7 @@ export const AdminUsers: React.FC = () => {
         } else {
           showError('Failed to approve user', 'User approval failed');
         }
-        
+
         // Refresh data to get updated user info
         await fetchData(false);
       } else {
@@ -221,7 +228,7 @@ export const AdminUsers: React.FC = () => {
     resources: { cpu: string; ram: string; gpu: string };
   }) => {
     if (!user?.token) return;
-    
+
     try {
       const response = await adminApi.createUser(userData, user.token);
       if (response.success) {
@@ -272,6 +279,38 @@ export const AdminUsers: React.FC = () => {
     }
   };
 
+  const handleRecreateContainer = (userToRecreateContainer: AdminUser) => {
+    setUserToRecreate(userToRecreateContainer);
+    setIsRecreateModalOpen(true);
+  };
+
+  const handleRecreateContainerSubmit = async (wipeData: boolean) => {
+    if (!user?.token || !userToRecreate) return;
+
+    try {
+      setIsRecreating(true);
+      const response = await adminApi.recreateUserContainer(userToRecreate.id, user.token, wipeData);
+
+      if (response.success) {
+        const actionDesc = wipeData ? 'with fresh data' : 'with data preserved';
+        success(
+          `Container recreated ${actionDesc}!`,
+          `The container for ${userToRecreate.name} has been recreated successfully.`
+        );
+        setIsRecreateModalOpen(false);
+        setUserToRecreate(null);
+        // Refresh data to get updated status
+        await fetchData(true);
+      } else {
+        showError('Failed to recreate container', response.error || 'Unknown error occurred');
+      }
+    } catch (err) {
+      showError('Failed to recreate container', 'Network error occurred');
+    } finally {
+      setIsRecreating(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="p-6 flex items-center justify-center">
@@ -303,8 +342,8 @@ export const AdminUsers: React.FC = () => {
           <p className="text-muted-foreground mt-1">Manage users and their container resources</p>
         </div>
         <div className="flex gap-2">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             onClick={handleRefresh}
             disabled={isLoading || isRefreshing}
             className="gap-2"
@@ -374,8 +413,8 @@ export const AdminUsers: React.FC = () => {
                           getContainerStatusIcon(user.containerStatus)
                         )}
                         <span className={`font-mono text-sm ${user.container === 'NA' ? 'text-muted-foreground italic' : user.containerStatus === 'failed' ? 'text-red-500' : ''}`}>
-                          {user.container === 'NA' ? 'Pending Assignment' : 
-                           user.containerStatus === 'failed' ? 'Creation Failed' : user.container}
+                          {user.container === 'NA' ? 'Pending Assignment' :
+                            user.containerStatus === 'failed' ? 'Creation Failed' : user.container}
                         </span>
                       </div>
                     </TableCell>
@@ -410,9 +449,9 @@ export const AdminUsers: React.FC = () => {
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         {/* VSCode Button */}
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           className={`h-8 w-8 p-0 ${user.serviceUrls?.vscode ? 'text-blue-600 hover:text-blue-700 hover:bg-blue-50' : 'opacity-40 cursor-not-allowed'}`}
                           onClick={() => user.serviceUrls?.vscode && window.open(user.serviceUrls.vscode, '_blank')}
                           disabled={!user.serviceUrls?.vscode}
@@ -421,9 +460,9 @@ export const AdminUsers: React.FC = () => {
                           <Code className="w-4 h-4" />
                         </Button>
                         {/* Jupyter Button */}
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           className={`h-8 w-8 p-0 ${user.serviceUrls?.jupyter ? 'text-orange-600 hover:text-orange-700 hover:bg-orange-50' : 'opacity-40 cursor-not-allowed'}`}
                           onClick={() => user.serviceUrls?.jupyter && window.open(user.serviceUrls.jupyter, '_blank')}
                           disabled={!user.serviceUrls?.jupyter}
@@ -432,27 +471,41 @@ export const AdminUsers: React.FC = () => {
                           <BookOpen className="w-4 h-4" />
                         </Button>
                         <div className="w-px h-6 bg-border mx-1" /> {/* Separator */}
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           className="h-8 w-8 p-0"
                           onClick={() => handleEditUser(user)}
                           title="Edit user"
                         >
                           <Edit className="w-4 h-4" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           className="h-8 w-8 p-0"
                           onClick={() => handleResetPassword(user)}
                           title="Reset password"
                         >
                           <KeyRound className="w-4 h-4" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={`h-8 w-8 p-0 text-purple-600 hover:text-purple-700 hover:bg-purple-50 ${user.container === 'NA' ? 'opacity-40 cursor-not-allowed' : ''}`}
+                          onClick={() => user.container !== 'NA' && handleRecreateContainer(user)}
+                          disabled={user.container === 'NA' || isRecreating}
+                          title={user.container === 'NA' ? 'No container assigned' : `Recreate container for ${user.name}`}
+                        >
+                          {isRecreating && userToRecreate?.id === user.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <RefreshCcw className="w-4 h-4" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           className={`h-8 w-8 p-0 text-destructive hover:text-destructive ${user.role?.toLowerCase() === 'admin' ? 'opacity-50 cursor-not-allowed' : ''}`}
                           onClick={() => { if (user.role?.toLowerCase() !== 'admin') handleDeleteUser(user.id, user.name); }}
                           disabled={(isDeleting && userToDelete === user.id) || user.role?.toLowerCase() === 'admin'}
@@ -526,7 +579,7 @@ export const AdminUsers: React.FC = () => {
         onCreate={handleCreateUser}
         mode={dialogMode}
       />
-      
+
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={(open) => {
         setIsDeleteDialogOpen(open);
@@ -541,7 +594,7 @@ export const AdminUsers: React.FC = () => {
               This action cannot be undone. This will permanently delete the user account, container, and nginx routes.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          
+
           {/* Workspace deletion option */}
           <div className="flex items-start space-x-3 py-4 px-1">
             <input
@@ -560,13 +613,13 @@ export const AdminUsers: React.FC = () => {
               </span>
             </div>
           </div>
-          
+
           {deleteWorkspace && (
             <div className="bg-destructive/10 border border-destructive/20 rounded-md p-3 text-sm text-destructive">
               <strong>Warning:</strong> All files in the user's workspace will be permanently deleted. This cannot be recovered.
             </div>
           )}
-          
+
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
@@ -600,7 +653,106 @@ export const AdminUsers: React.FC = () => {
           userEmail={userToResetPassword.email}
         />
       )}
-      
+
+      {/* Recreate Container Modal */}
+      {isRecreateModalOpen && userToRecreate && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-border bg-gradient-to-r from-purple-500/10 to-blue-500/10">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-purple-500/20">
+                  <RefreshCcw className="w-5 h-5 text-purple-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold">Recreate Container</h3>
+                  <p className="text-xs text-muted-foreground">for {userToRecreate.name}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setIsRecreateModalOpen(false);
+                  setUserToRecreate(null);
+                }}
+                className="p-1 rounded-lg hover:bg-muted transition-colors"
+                disabled={isRecreating}
+              >
+                <X className="w-5 h-5 text-muted-foreground" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 space-y-4">
+              <p className="text-muted-foreground text-sm">
+                Choose how you want to recreate the container for <strong>{userToRecreate.name}</strong>:
+              </p>
+
+              {/* Option 1: Keep Data */}
+              <button
+                onClick={() => handleRecreateContainerSubmit(false)}
+                disabled={isRecreating}
+                className="w-full p-4 rounded-lg border-2 border-border hover:border-blue-500 hover:bg-blue-500/5 transition-all text-left group disabled:opacity-50"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-lg bg-blue-500/20 group-hover:bg-blue-500/30 transition-colors">
+                    <RotateCcw className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-medium text-foreground mb-1">Keep User Data</h4>
+                    <p className="text-xs text-muted-foreground">
+                      Recreate the container while preserving all workspace files, projects, and settings.
+                    </p>
+                  </div>
+                  {isRecreating && (
+                    <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                  )}
+                </div>
+              </button>
+
+              {/* Option 2: Fresh Start */}
+              <button
+                onClick={() => handleRecreateContainerSubmit(true)}
+                disabled={isRecreating}
+                className="w-full p-4 rounded-lg border-2 border-border hover:border-orange-500 hover:bg-orange-500/5 transition-all text-left group disabled:opacity-50"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-lg bg-orange-500/20 group-hover:bg-orange-500/30 transition-colors">
+                    <AlertTriangle className="w-5 h-5 text-orange-400" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-medium text-foreground mb-1">Fresh Start (Wipe Data)</h4>
+                    <p className="text-xs text-muted-foreground">
+                      Recreate the container and wipe all user data. Workspace will be reset to default state.
+                    </p>
+                    <div className="mt-2 flex items-center gap-1.5 text-orange-400 text-xs font-medium">
+                      <AlertTriangle className="w-3 h-3" />
+                      <span>This action cannot be undone</span>
+                    </div>
+                  </div>
+                  {isRecreating && (
+                    <Loader2 className="w-5 h-5 animate-spin text-orange-500" />
+                  )}
+                </div>
+              </button>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 pb-6">
+              <button
+                onClick={() => {
+                  setIsRecreateModalOpen(false);
+                  setUserToRecreate(null);
+                }}
+                disabled={isRecreating}
+                className="w-full py-2 text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toast Notifications */}
       <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>

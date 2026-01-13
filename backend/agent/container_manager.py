@@ -246,6 +246,161 @@ class DockerContainerManager:
             logger.error(f"Error recreating container from workdir: {e}")
             return False
 
+    def recreate_container(self, user_data, wipe_data=False):
+        """Recreate a container for a user with optional data wipe.
+        
+        This method will:
+        1. Stop and remove the existing container (if it exists)
+        2. Optionally wipe user workspace data
+        3. Create a fresh container
+        
+        Args:
+            user_data: Dict containing:
+                - username: User's username (required)
+                - ports: Dict with port mappings (optional)
+                - cpu_count: CPU count (optional)
+                - memory_limit: Memory limit (optional)
+            wipe_data: If True, wipe user workspace data and start fresh.
+                      If False, preserve existing workspace data.
+        
+        Returns:
+            Dict with success status, message, and details
+        """
+        result = {
+            'success': False,
+            'message': '',
+            'container_stopped': False,
+            'container_removed': False,
+            'data_wiped': False,
+            'container_created': False
+        }
+        
+        try:
+            username = user_data.get('username')
+            if not username:
+                result['message'] = 'Username is required to recreate container'
+                logger.error(result['message'])
+                return result
+            
+            logger.info(f"Recreating container for user {username} (wipe_data={wipe_data})")
+            
+            # Get container name
+            container_name = docker_helper.get_contianer_name(username)
+            
+            # Step 1: Stop and remove existing container
+            try:
+                container = self.client.containers.get(container_name)
+                
+                # Stop container if running
+                if container.status == 'running':
+                    try:
+                        container.stop(timeout=10)
+                        result['container_stopped'] = True
+                        logger.info(f"Container {container_name} stopped successfully")
+                    except docker.errors.APIError as e:
+                        logger.warning(f"Error stopping container {container_name}: {e}")
+                
+                # Remove container
+                try:
+                    container.remove(force=True)
+                    result['container_removed'] = True
+                    logger.info(f"Container {container_name} removed successfully")
+                except docker.errors.APIError as e:
+                    result['message'] = f"Failed to remove container: {e}"
+                    logger.error(result['message'])
+                    return result
+                    
+            except docker.errors.NotFound:
+                logger.info(f"Container {container_name} not found, will create new one")
+                result['container_removed'] = True  # Consider it removed if not found
+            
+            # Step 2: Handle data wipe if requested
+            dir_deploy = (
+                os.getenv("WORKDIR_DEPLOY", "/home/vms/")
+                + f"{username}-{docker_helper.generate_user_hash(username)}"
+            )
+            
+            if wipe_data:
+                logger.info(f"Wiping user data for {username}")
+                
+                # Get workspace path
+                workspace_path = os.path.join(dir_deploy, "workspace")
+                
+                if os.path.exists(workspace_path):
+                    try:
+                        # Remove workspace contents but keep the directory
+                        for item in os.listdir(workspace_path):
+                            item_path = os.path.join(workspace_path, item)
+                            if os.path.isfile(item_path):
+                                os.remove(item_path)
+                            elif os.path.isdir(item_path):
+                                shutil.rmtree(item_path)
+                        
+                        result['data_wiped'] = True
+                        logger.info(f"Workspace data wiped for user {username}")
+                    except PermissionError:
+                        # Try with sudo if not running as root
+                        try:
+                            subprocess.run(["sudo", "rm", "-rf", f"{workspace_path}/*"], check=True, shell=False)
+                            result['data_wiped'] = True
+                            logger.info(f"Workspace data wiped via sudo for user {username}")
+                        except Exception as e:
+                            logger.warning(f"Could not wipe workspace data: {e}")
+                    except Exception as e:
+                        logger.warning(f"Could not wipe workspace data for {username}: {e}")
+                
+                # Also wipe VS Code extensions if needed
+                extensions_path = os.path.join(dir_deploy, "code/config/extensions")
+                if os.path.exists(extensions_path):
+                    try:
+                        for item in os.listdir(extensions_path):
+                            item_path = os.path.join(extensions_path, item)
+                            if os.path.isfile(item_path):
+                                os.remove(item_path)
+                            elif os.path.isdir(item_path):
+                                shutil.rmtree(item_path)
+                        logger.info(f"VS Code extensions wiped for user {username}")
+                    except Exception as e:
+                        logger.warning(f"Could not wipe VS Code extensions: {e}")
+            
+            # Step 3: Setup workdir (will preserve data if not wiped)
+            dir_template = os.getenv("WORKDIR_TEMPLATE", "/opt/cxl/")
+            
+            if not os.path.exists(dir_deploy):
+                # If workdir doesn't exist, create it from template
+                if not docker_helper.setup_workdir(username, dir_template, dir_deploy):
+                    result['message'] = "Failed to setup workdir"
+                    logger.error(result['message'])
+                    return result
+            elif wipe_data:
+                # Re-setup workdir from template after wipe
+                if not docker_helper.setup_workdir(username, dir_template, dir_deploy):
+                    result['message'] = "Failed to re-setup workdir after wipe"
+                    logger.error(result['message'])
+                    return result
+            
+            # Step 4: Create the container
+            if self.create_container_from_workdir(user_data):
+                result['container_created'] = True
+                result['success'] = True
+                
+                if wipe_data:
+                    result['message'] = f"Container {container_name} recreated successfully with fresh data"
+                else:
+                    result['message'] = f"Container {container_name} recreated successfully with existing data preserved"
+                
+                logger.success(result['message'])
+            else:
+                result['message'] = f"Failed to create new container for user {username}"
+                logger.error(result['message'])
+            
+            return result
+                
+        except Exception as e:
+            result['message'] = f"Error recreating container: {str(e)}"
+            logger.error(result['message'])
+            return result
+
     def stop_container(self, container_id_or_name):
         self.lock.acquire()
         try:
@@ -847,6 +1002,57 @@ def init_backend_routes(app):
         if docker_manager.restart_container(container_id):
             return jsonify({"success": True})
         return jsonify({"success": False, "error": "Failed to restart container"}), 400
+
+    @app.route("/api/containers/<string:container_id>/recreate", methods=["POST"])
+    def recreate_container(container_id):
+        """Recreate a container with optional data wipe.
+        
+        POST body:
+            - wipe_data: (bool) If true, wipe user workspace data and start fresh
+            - ports: (dict, optional) Port mappings
+            - cpu_count: (int, optional) CPU count
+            - memory_limit: (str, optional) Memory limit (e.g., "2g")
+        """
+        try:
+            data = request.get_json(silent=True, force=True) or {}
+            wipe_data = data.get('wipe_data', False)
+            
+            logger.info(f"Recreating container {container_id} with wipe_data={wipe_data}")
+            
+            # Extract username from container name (format: code-server-username-hash)
+            username = None
+            if container_id.startswith('code-server-'):
+                parts = container_id.split('-')
+                if len(parts) >= 3:
+                    # Join all parts between 'code-server-' and the hash (last part)
+                    username = '-'.join(parts[2:-1])
+                    logger.info(f"Extracted username: {username} from container_id: {container_id}")
+            
+            if not username:
+                return jsonify({
+                    "success": False, 
+                    "error": "Could not extract username from container name"
+                }), 400
+            
+            # Prepare user_data for recreation
+            user_data = {
+                'username': username,
+                'ports': data.get('ports'),
+                'cpu_count': data.get('cpu_count'),
+                'memory_limit': data.get('memory_limit'),
+            }
+            
+            # Recreate the container
+            result = docker_manager.recreate_container(user_data, wipe_data=wipe_data)
+            
+            if result['success']:
+                return jsonify(result)
+            else:
+                return jsonify(result), 400
+                
+        except Exception as e:
+            logger.error(f"Error in recreate_container endpoint: {e}")
+            return jsonify({"success": False, "error": str(e)}), 500
     
     @app.route("/api/containers/<string:container_id>/stats", methods=["GET"])
     def get_stats(container_id):

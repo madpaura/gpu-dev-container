@@ -71,7 +71,7 @@ interface ApiResponse<T> {
  * Generic fetch wrapper with error handling
  */
 async function fetchApi<T>(
-  endpoint: string, 
+  endpoint: string,
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> {
   try {
@@ -83,20 +83,20 @@ async function fetchApi<T>(
         ...options.headers,
       },
     });
-    
+
     const jsonResponse = await response.json();
-    
+
     if (!response.ok) {
       return {
         success: false,
         error: jsonResponse.error || jsonResponse.message || 'An error occurred',
       };
     }
-    
+
     // Backend returns {success: true, data: {...}}
     // Extract the data field if it exists, otherwise use the whole response
     const data = jsonResponse.data !== undefined ? jsonResponse.data : jsonResponse;
-    
+
     return {
       success: true,
       data: data as T,
@@ -119,7 +119,7 @@ export const authApi = {
       body: JSON.stringify({ email, password }),
     });
   },
-  
+
   logout: async (token: string) => {
     try {
       const response = await fetch(`${API_BASE_URL}/logout`, {
@@ -129,11 +129,11 @@ export const authApi = {
           'Authorization': `Bearer ${token}`,
         },
       });
-      
+
       const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
         const data = await response.json();
-        
+
         return {
           success: response.ok,
           error: !response.ok ? (data.error || 'Logout failed') : undefined,
@@ -145,7 +145,7 @@ export const authApi = {
       return { success: true };
     }
   },
-  
+
   validateSession: async (token: string) => {
     const response = await fetch(`${API_BASE_URL}/validate_session`, {
       method: 'POST',
@@ -154,22 +154,22 @@ export const authApi = {
         'Authorization': `Bearer ${token}`,
       },
     });
-    
+
     const data = await response.json();
-    
+
     if (!response.ok) {
       return {
         success: false,
         error: data.error || 'Session validation failed',
       };
     }
-    
+
     return {
       success: true,
       data: data.data,
     };
   },
-  
+
   requestPasswordResetPublic: async (email: string, reason?: string): Promise<ApiResponse<{ message: string }>> => {
     return fetchApi('/public/request-password-reset', {
       method: 'POST',
@@ -184,23 +184,23 @@ export const authApi = {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
-          username: name, 
-          email, 
-          password 
+        body: JSON.stringify({
+          username: name,
+          email,
+          password
         }),
       });
-      
+
       const data = await response.json();
       console.log('Raw register response:', data);
-      
+
       if (!response.ok || data.success === false) {
         return {
           success: false,
           error: data.error || 'Registration failed',
         };
       }
-      
+
       return {
         success: true,
         data: data.data || { message: data.message || 'Registration successful' },
@@ -232,7 +232,7 @@ export const userApi = {
       },
     });
   },
-  
+
   getPendingUsers: async (token: string) => {
     return fetchApi<Array<{
       user_id: number;
@@ -245,7 +245,7 @@ export const userApi = {
       },
     });
   },
-  
+
   approveUser: async (userId: number, token: string) => {
     return fetchApi<{ message: string }>(`/users/${userId}/approve`, {
       method: 'POST',
@@ -254,7 +254,7 @@ export const userApi = {
       },
     });
   },
-  
+
   deleteUser: async (userId: number, token: string) => {
     return fetchApi<{ message: string }>(`/users/${userId}`, {
       method: 'DELETE',
@@ -479,8 +479,8 @@ export const adminApi = {
 
   // Password reset methods
   async resetUserPassword(
-    userId: string, 
-    newPassword: string, 
+    userId: string,
+    newPassword: string,
     token: string
   ): Promise<ApiResponse<{ message: string }>> {
     return fetchApi(`/admin/users/${userId}/reset-password`, {
@@ -492,7 +492,7 @@ export const adminApi = {
     });
   },
 
-  async getPasswordResetRequests(token: string): Promise<ApiResponse<{ 
+  async getPasswordResetRequests(token: string): Promise<ApiResponse<{
     requests: PasswordResetRequest[];
     count: number;
   }>> {
@@ -505,7 +505,7 @@ export const adminApi = {
   },
 
   async rejectPasswordResetRequest(
-    requestId: number, 
+    requestId: number,
     token: string
   ): Promise<ApiResponse<{ message: string }>> {
     return fetchApi(`/admin/password-reset-requests/${requestId}/reject`, {
@@ -513,6 +513,21 @@ export const adminApi = {
       headers: {
         'Authorization': `Bearer ${token}`,
       },
+    });
+  },
+
+  async recreateUserContainer(
+    userId: string,
+    token: string,
+    wipeData: boolean = false
+  ): Promise<ApiResponse<{ message: string; data_wiped: boolean; target_user: string }>> {
+    return fetchApi(`/admin/users/${userId}/container/recreate`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ wipe_data: wipeData }),
     });
   },
 };
@@ -572,8 +587,8 @@ export const serverApi = {
   },
 
   performServerAction(
-    serverId: string, 
-    action: string, 
+    serverId: string,
+    action: string,
     token: string
   ): Promise<ApiResponse<{ message: string }>> {
     return fetchApi(`/admin/servers/${serverId}/action`, {
@@ -776,16 +791,16 @@ export interface DashboardStats {
   totalUsers: number;
   activeUsers: number;
   pendingUsers: number;
-  
+
   // Server stats
   totalServers: number;
   onlineServers: number;
   offlineServers: number;
-  
+
   // Container stats
   totalContainers: number;
   runningContainers: number;
-  
+
   // Resource stats
   avgCpuUsage: number;
   avgMemoryUsage: number;
@@ -905,7 +920,7 @@ export type UserServicesDataFlat = UserServicesData['data'];
  * User API calls
  */
 export const userServicesApi = {
-  async getUserServices(token: string): Promise<ApiResponse<{data: UserServicesData}>> {
+  async getUserServices(token: string): Promise<ApiResponse<{ data: UserServicesData }>> {
     return fetchApi('/user/services', {
       method: 'GET',
       headers: {
@@ -914,7 +929,7 @@ export const userServicesApi = {
     });
   },
 
-  async startContainer(token: string): Promise<ApiResponse<{message: string}>> {
+  async startContainer(token: string): Promise<ApiResponse<{ message: string }>> {
     return fetchApi('/user/container/start', {
       method: 'POST',
       headers: {
@@ -933,11 +948,22 @@ export const userServicesApi = {
     });
   },
 
+  async recreateContainer(token: string, wipeData: boolean = false): Promise<ApiResponse<{ message: string; data_wiped: boolean }>> {
+    return fetchApi('/user/container/recreate', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ wipe_data: wipeData })
+    });
+  },
+
   async getLogs(token: string, limit?: number, level?: string): Promise<LogsResponse> {
     const params = new URLSearchParams();
     if (limit) params.append('limit', limit.toString());
     if (level) params.append('level', level);
-    
+
     const response = await fetchApi(`/user/logs?${params.toString()}`, {
       method: 'GET',
       headers: {
@@ -945,7 +971,7 @@ export const userServicesApi = {
         'Content-Type': 'application/json'
       }
     });
-   
+
     return response as LogsResponse;
   },
 
@@ -955,11 +981,11 @@ export const userServicesApi = {
         'Authorization': `Bearer ${token}`
       }
     });
-    
+
     if (!response.ok) {
       throw new Error('Failed to download logs');
     }
-    
+
     return response.blob();
   },
 
@@ -1112,7 +1138,7 @@ export const trafficApi = {
       period,
       days: days.toString(),
     });
-    
+
     if (ipFilter) params.append('ip_filter', ipFilter);
     if (userFilter) params.append('user_filter', userFilter);
 
@@ -1216,13 +1242,13 @@ export const dashboardApi = {
     // Calculate aggregated stats
     const totalContainers = servers.reduce((sum, server) => sum + (server.containers || 0), 0);
     const onlineServers = servers.filter(s => s.status === 'online');
-    const avgCpuUsage = onlineServers.length > 0 
-      ? onlineServers.reduce((sum, server) => sum + server.cpu, 0) / onlineServers.length 
+    const avgCpuUsage = onlineServers.length > 0
+      ? onlineServers.reduce((sum, server) => sum + server.cpu, 0) / onlineServers.length
       : 0;
-    const avgMemoryUsage = onlineServers.length > 0 
-      ? onlineServers.reduce((sum, server) => sum + server.memory, 0) / onlineServers.length 
+    const avgMemoryUsage = onlineServers.length > 0
+      ? onlineServers.reduce((sum, server) => sum + server.memory, 0) / onlineServers.length
       : 0;
-    
+
     // Calculate total and used memory from server data
     const totalMemoryBytes = onlineServers.reduce((sum, server) => sum + (server.total_memory || 0), 0);
     const totalMemoryGB = totalMemoryBytes / (1024 * 1024 * 1024);
@@ -1232,14 +1258,14 @@ export const dashboardApi = {
       totalUsers: adminStats?.totalUsers || 0,
       activeUsers: adminStats?.activeContainers || 0,
       pendingUsers: pendingUsers.length,
-      
+
       totalServers: serverStats?.totalServers || 0,
       onlineServers: serverStats?.onlineServers || 0,
       offlineServers: serverStats?.offlineServers || 0,
-      
+
       totalContainers: totalContainers,
       runningContainers: totalContainers, // Assuming running containers from server data
-      
+
       avgCpuUsage: Math.round(avgCpuUsage * 10) / 10,
       avgMemoryUsage: Math.round(avgMemoryUsage * 10) / 10,
       totalMemoryGB: Math.round(totalMemoryGB * 100) / 100,

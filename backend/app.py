@@ -65,4 +65,4 @@ for _bp in (auth_bp, user_bp, server_bp, agent_bp, user_service_bp,
 if __name__ == '__main__':
     port = int(os.getenv('MGMT_SERVER_PORT', os.getenv('BACKEND_PORT', '8500')))
     logger.info(f"Starting Flask application on port {port}")
-    app.run(host='0.0.0.0', port=port, debug=True, use_reloader=True)
+    app.run(host='0.0.0.0', port=port, debug=False)

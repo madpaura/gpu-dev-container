@@ -1,20 +1,26 @@
 
 import secrets
-import hashlib
 import os
 import re
 from typing import List, Optional
 from loguru import logger
+import bcrypt
 
 
 def generate_session_token() -> str:
-    
+
     return secrets.token_urlsafe(32)
 
 
 def hash_password(password: str) -> str:
-    
-    return hashlib.sha256(password.encode()).hexdigest()
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_password(password: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(password.encode(), hashed.encode())
+    except Exception:
+        return False
 
 
 def read_agents_file(agents_file: str = "agents.txt") -> List[str]:

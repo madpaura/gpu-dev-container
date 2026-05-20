@@ -141,6 +141,12 @@ cmd_deploy() {
     # Ensure backend logs directory exists (idempotent)
     mkdir -p "$PROJECT_ROOT/backend/logs"
 
+    # Ensure agents.txt exists as a file (Docker bind-mount creates a dir if missing)
+    if [ ! -f "$PROJECT_ROOT/backend/agents.txt" ]; then
+        touch "$PROJECT_ROOT/backend/agents.txt"
+        ok "Created backend/agents.txt"
+    fi
+
     echo "Building and starting containers..."
     docker compose -f "$COMPOSE_FILE" build
     docker compose -f "$COMPOSE_FILE" up -d

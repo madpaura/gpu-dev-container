@@ -4,12 +4,16 @@ import os
 import json
 import hashlib
 import logging
+import re
 import tempfile
 import subprocess
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 import paramiko
 from stat import S_ISDIR, S_ISREG
+
+_SAFE_USERNAME_RE = re.compile(r'^[a-zA-Z0-9_.\-]{1,64}$')
+_SAFE_HOST_RE = re.compile(r'^[a-zA-Z0-9_.\-]{1,253}$')
 
 from database.upload_repository import UploadServerRepository, GuestOSUploadRepository
 from database import UserDatabase
@@ -245,15 +249,21 @@ class UploadService:
         except Exception as e:
             return {'success': False, 'error': str(e)}
     
-    def _browse_sftp(self, server: Dict[str, Any], browse_path: str, 
+    def _browse_sftp(self, server: Dict[str, Any], browse_path: str,
                     base_path: str) -> Dict[str, Any]:
         """Browse files via SFTP."""
+        # Containment check — normalise without resolving symlinks on remote
+        norm_browse = os.path.normpath(browse_path)
+        norm_base = os.path.normpath(base_path)
+        if not norm_browse.startswith(norm_base + '/') and norm_browse != norm_base:
+            return {'success': False, 'error': 'Access denied'}
+
         ssh = None
         sftp = None
         try:
             ssh = self._get_ssh_connection(server)
             sftp = ssh.open_sftp()
-            
+
             items = []
             for attr in sftp.listdir_attr(browse_path):
                 items.append({
@@ -345,12 +355,18 @@ class UploadService:
     
     def _delete_sftp(self, server: Dict[str, Any], full_path: str) -> Dict[str, Any]:
         """Delete file/folder via SFTP."""
+        base_path = server.get('base_path', '')
+        norm_full = os.path.normpath(full_path)
+        norm_base = os.path.normpath(base_path)
+        if not norm_full.startswith(norm_base + '/') or norm_full == norm_base:
+            return {'success': False, 'error': 'Access denied'}
+
         ssh = None
         sftp = None
         try:
             ssh = self._get_ssh_connection(server)
             sftp = ssh.open_sftp()
-            
+
             # Check if it's a directory
             try:
                 attr = sftp.stat(full_path)
@@ -671,7 +687,12 @@ class UploadService:
             port = server.get('port', 22)
             username = server.get('username')
             password = server.get('password')
-            
+
+            if not _SAFE_HOST_RE.match(str(host)):
+                return {'success': False, 'error': 'Invalid server host'}
+            if username and not _SAFE_USERNAME_RE.match(str(username)):
+                return {'success': False, 'error': 'Invalid username'}
+
             # Create remote directory first via SSH
             dir_path = os.path.dirname(dest_path)
             mkdir_cmd = ['ssh', '-o', 'StrictHostKeyChecking=no', '-p', str(port)]

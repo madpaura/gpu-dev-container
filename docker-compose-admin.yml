@@ -76,11 +76,14 @@ services:
     volumes:
       - ${HOST_HOME:-/home/vishwa}:/home/vishwa
       - ${HOST_OPT:-/opt}:/opt
-      # Docker socket for container management
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Docker socket for container management (read-only where possible).
+      # For production, replace with a Docker socket proxy (e.g. tecnativa/docker-socket-proxy)
+      # to restrict API access to only the operations the backend needs.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       # Application logs
       - ./backend/logs:/app/logs
-      # Configuration files
+      # agents.txt — must exist as a file before 'docker compose up'
+      # setup.sh ensures this with 'touch backend/agents.txt'
       - ./backend/agents.txt:/app/agents.txt
     networks:
       - gpu-dash-net

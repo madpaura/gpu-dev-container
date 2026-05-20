@@ -1,10 +1,10 @@
 """User repository for database operations."""
 
 import psycopg2
-import hashlib
 import json
 from typing import Dict, List, Optional
 from .base import DatabaseManager
+from utils.helpers import verify_password
 
 
 class UserRepository:
@@ -135,17 +135,15 @@ class UserRepository:
 
     def verify_login(self, email: str, password: str) -> Optional[Dict]:
         """Verify user login credentials."""
-        hashed_password = hashlib.sha256(password.encode()).hexdigest()
-        query = """
-        SELECT * FROM users
-        WHERE email = %s AND password = %s AND status = 'active'
-        """
+        query = "SELECT * FROM users WHERE email = %s AND status = 'active'"
 
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor(dictionary=True)
-            cursor.execute(query, (email, hashed_password))
+            cursor.execute(query, (email,))
             user = cursor.fetchone()
+            if user and not verify_password(password, user['password']):
+                user = None
 
             if user:
                 cursor.execute(
@@ -177,8 +175,8 @@ class UserRepository:
             conn.close()
 
     def get_all_users(self, exclude_admin: bool = True) -> List[Dict]:
-        """Get all users."""
-        query = "SELECT * FROM users"
+        """Get all users (password column excluded)."""
+        query = "SELECT id, username, email, is_admin, is_approved, user_type, status, redirect_url, metadata, created_at, last_login FROM users"
 
         conn = self.db_manager.get_connection()
         try:

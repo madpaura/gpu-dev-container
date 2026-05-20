@@ -21,6 +21,9 @@ _user_service = UserService(_db, _nginx_config, _agent_port)
 
 @user_bp.route('/api/users', methods=['GET'])
 def get_users():
+    session, error_response, status_code = require_admin_auth()
+    if error_response:
+        return error_response, status_code
     users = _user_service.get_all_users()
     if users:
         return jsonify({'success': True, 'users': users})
@@ -29,6 +32,9 @@ def get_users():
 
 @user_bp.route('/api/users/<int:user_id>', methods=['GET'])
 def get_user_info(user_id):
+    session, error_response, status_code = require_session_auth()
+    if error_response:
+        return error_response, status_code
     user = _user_service.get_user_by_id(user_id)
     if user:
         return jsonify({'success': True, 'redirect_url': user.get('redirect_url', '')})
@@ -46,7 +52,7 @@ def delete_user(user_id):
     else:
         delete_workspace = request.args.get('delete_workspace', 'false').lower() == 'true'
 
-    result = _user_service.delete_user(user_id, session.get('username', 'admin'), delete_workspace=delete_workspace)
+    result = _user_service.delete_user(user_id, session.get('username', 'admin'), delete_workspace=delete_workspace, ip_address=get_client_ip(request))
 
     status = 200 if result['success'] else 400
     return jsonify({
@@ -62,6 +68,9 @@ def delete_user(user_id):
 
 @user_bp.route('/api/users/pending', methods=['GET'])
 def get_pending_users():
+    session, error_response, status_code = require_admin_auth()
+    if error_response:
+        return error_response, status_code
     users = _user_service.get_pending_users()
     if users:
         return jsonify({'success': True, 'users': users})

@@ -357,6 +357,12 @@ class CleanupService:
                 'error': str(e)
             }
     
+    @staticmethod
+    def _validate_docker_ids(ids: List[str]) -> List[str]:
+        """Return only IDs that look like valid Docker container/image IDs or names."""
+        valid = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,127}$')
+        return [i for i in ids if valid.match(i)]
+
     def _remove_specific_containers_ssh(self, client: paramiko.SSHClient, container_ids: List[str]) -> Dict[str, Any]:
         try:
             if not container_ids:
@@ -366,7 +372,12 @@ class CleanupService:
                     'output': 'No containers specified',
                     'error': None
                 }
-            
+
+            container_ids = self._validate_docker_ids(container_ids)
+            if not container_ids:
+                return {'operation': 'Remove Specific Containers', 'success': False,
+                        'error': 'No valid container IDs provided'}
+
             containers_str = ' '.join(container_ids)
             stdin, stdout, stderr = client.exec_command(f"docker stop {containers_str} && docker rm {containers_str}")
             output = stdout.read().decode('utf-8')
@@ -396,7 +407,12 @@ class CleanupService:
                     'output': 'No images specified',
                     'error': None
                 }
-            
+
+            image_ids = self._validate_docker_ids(image_ids)
+            if not image_ids:
+                return {'operation': 'Remove Specific Images', 'success': False,
+                        'error': 'No valid image IDs provided'}
+
             images_str = ' '.join(image_ids)
             stdin, stdout, stderr = client.exec_command(f"docker rmi -f {images_str}")
             output = stdout.read().decode('utf-8')

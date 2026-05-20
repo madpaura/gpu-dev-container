@@ -28,6 +28,10 @@ class _PooledConnection:
         self._conn.rollback()
 
     def close(self):
+        try:
+            self._conn.rollback()
+        except Exception:
+            pass
         self._pool.putconn(self._conn)
 
     # Delegate any other attribute lookups to the real connection
@@ -86,7 +90,7 @@ class DatabaseManager:
     def _create_default_admin(self):
         """Create default admin user if it doesn't exist."""
         from .user_repository import UserRepository
-        import hashlib
+        from utils.helpers import hash_password
 
         user_repo = UserRepository()
         admin_user = user_repo.get_user_by_username('admin')
@@ -95,7 +99,7 @@ class DatabaseManager:
             print("Creating default admin user...")
             admin_data = {
                 'username': os.getenv('ADMIN_USERNAME'),
-                'password': hashlib.sha256(os.getenv('ADMIN_PASSWORD').encode()).hexdigest(),
+                'password': hash_password(os.getenv('ADMIN_PASSWORD')),
                 'email': os.getenv('ADMIN_EMAIL'),
                 'is_admin': True,
                 'is_approved': True,

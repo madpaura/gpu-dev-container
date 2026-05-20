@@ -2,7 +2,7 @@
  * API service for communicating with the backend
  */
 
-const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}/api`;
+const API_BASE_URL = `${window.location.protocol}//${window.location.host}/api`;
 
 // Container Management Interfaces
 export interface ContainerInfo {
@@ -147,8 +147,8 @@ export const authApi = {
   },
 
   validateSession: async (token: string) => {
-    const response = await fetch(`${API_BASE_URL}/validate_session`, {
-      method: 'POST',
+    const response = await fetch(`${API_BASE_URL}/validate-session`, {
+      method: 'GET',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,

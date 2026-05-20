@@ -1,6 +1,6 @@
 """User repository for database operations."""
 
-import mysql.connector
+import psycopg2
 import hashlib
 import json
 from typing import Dict, List, Optional
@@ -9,11 +9,11 @@ from .base import DatabaseManager
 
 class UserRepository:
     """Repository class for user-related database operations."""
-    
+
     def __init__(self):
         """Initialize user repository."""
         self.db_manager = DatabaseManager()
-    
+
     def create_user(self, user_data: Dict) -> bool:
         """Create a new user."""
         query = """
@@ -24,11 +24,10 @@ class UserRepository:
         try:
             cursor = conn.cursor()
             metadata = user_data.get('metadata', {})
-            # Determine user_type from is_admin if not explicitly set
             user_type = user_data.get('user_type')
             if not user_type:
                 user_type = 'admin' if user_data.get('is_admin', False) else 'regular'
-            
+
             cursor.execute(query, {
                 'username': user_data['username'],
                 'password': user_data['password'],
@@ -40,7 +39,7 @@ class UserRepository:
             })
             conn.commit()
             return True
-        except mysql.connector.Error as e:
+        except psycopg2.Error as e:
             print(f"Error creating user: {e}")
             return False
         finally:
@@ -86,16 +85,14 @@ class UserRepository:
     def delete_user_by_username(self, username: str) -> bool:
         """Delete a user by their username."""
         query = "DELETE FROM users WHERE username = %s"
-        
+
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(query, (username,))
             conn.commit()
-            
-            # Check if any row was affected
             return cursor.rowcount > 0
-        except mysql.connector.Error as e:
+        except psycopg2.Error as e:
             print(f"Error deleting user: {e}")
             return False
         finally:
@@ -107,16 +104,16 @@ class UserRepository:
         allowed_fields = ['email', 'password', 'is_approved', 'is_admin', 'user_type', 'redirect_url', 'status', 'metadata']
         update_fields = []
         values = []
-        
+
         for field in allowed_fields:
             if field in update_data:
-                if field == 'metadata':  # Handle metadata separately
+                if field == 'metadata':
                     update_fields.append(f"{field} = %s")
-                    values.append(json.dumps(update_data[field]))  # Convert dict to JSON string
+                    values.append(json.dumps(update_data[field]))
                 else:
                     update_fields.append(f"{field} = %s")
                     values.append(update_data[field])
-            
+
         if not update_fields:
             return False
 
@@ -129,7 +126,7 @@ class UserRepository:
             cursor.execute(query, values)
             conn.commit()
             return True
-        except mysql.connector.Error as e:
+        except psycopg2.Error as e:
             print(f"Error updating user: {e}")
             return False
         finally:
@@ -140,24 +137,23 @@ class UserRepository:
         """Verify user login credentials."""
         hashed_password = hashlib.sha256(password.encode()).hexdigest()
         query = """
-        SELECT * FROM users 
+        SELECT * FROM users
         WHERE email = %s AND password = %s AND status = 'active'
         """
-        
+
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor(dictionary=True)
             cursor.execute(query, (email, hashed_password))
             user = cursor.fetchone()
-            
+
             if user:
-                # Update last login timestamp
                 cursor.execute(
                     "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = %s",
                     (user['id'],)
                 )
                 conn.commit()
-            
+
             return user
         finally:
             cursor.close()
@@ -166,11 +162,11 @@ class UserRepository:
     def get_pending_users(self) -> List[Dict]:
         """Get users pending approval."""
         query = """
-        SELECT id, username, email, created_at 
-        FROM users 
+        SELECT id, username, email, created_at
+        FROM users
         WHERE is_approved = FALSE AND is_admin = FALSE AND username != 'System' AND status != 'system'
         """
-        
+
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor(dictionary=True)
@@ -183,9 +179,7 @@ class UserRepository:
     def get_all_users(self, exclude_admin: bool = True) -> List[Dict]:
         """Get all users."""
         query = "SELECT * FROM users"
-        # Note: exclude_admin parameter is preserved for backward compatibility
-        # but currently not used as per the original implementation
-            
+
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor(dictionary=True)
@@ -197,32 +191,30 @@ class UserRepository:
 
     def get_or_create_system_user(self) -> int:
         """Get or create a system user for audit logging."""
-        # First try to get existing system user
         system_user = self.get_user_by_username('System')
         if system_user:
             return system_user['id']
-        
-        # Create system user if it doesn't exist
+
         query = """
         INSERT INTO users (username, password, email, is_admin, is_approved, status)
         VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING id
         """
-        
+
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(query, (
                 'System',
-                'system_user_no_login',  # System user cannot login
+                'system_user_no_login',
                 'system@localhost',
-                0,  # Not admin
-                1,  # Approved
-                'system'  # System status
+                False,
+                True,
+                'system'
             ))
             conn.commit()
-            return cursor.lastrowid
+            return cursor.fetchone()[0]
         except Exception as e:
-            # If system user already exists (race condition), get it
             system_user = self.get_user_by_username('System')
             if system_user:
                 return system_user['id']

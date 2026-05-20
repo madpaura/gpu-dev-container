@@ -10,20 +10,21 @@ logger = logging.getLogger(__name__)
 
 class UploadServerRepository:
     """Repository for upload server CRUD operations."""
-    
+
     def __init__(self):
         self.db = DatabaseManager()
-    
+
     def create_server(self, data: Dict[str, Any], created_by: int = None) -> Optional[int]:
         """Create a new upload server."""
         conn = self.db.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO upload_servers 
-                (name, ip_address, port, protocol, username, password, ssh_key, 
+                INSERT INTO upload_servers
+                (name, ip_address, port, protocol, username, password, ssh_key,
                  base_path, version_file_path, is_active, metadata, created_by)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
             """, (
                 data.get('name'),
                 data.get('ip_address'),
@@ -39,7 +40,7 @@ class UploadServerRepository:
                 created_by
             ))
             conn.commit()
-            return cursor.lastrowid
+            return cursor.fetchone()[0]
         except Exception as e:
             logger.error(f"Error creating upload server: {e}")
             conn.rollback()
@@ -47,7 +48,7 @@ class UploadServerRepository:
         finally:
             cursor.close()
             conn.close()
-    
+
     def get_server_by_id(self, server_id: int) -> Optional[Dict[str, Any]]:
         """Get an upload server by ID."""
         conn = self.db.get_connection()
@@ -66,7 +67,7 @@ class UploadServerRepository:
         finally:
             cursor.close()
             conn.close()
-    
+
     def get_server_with_credentials(self, server_id: int) -> Optional[Dict[str, Any]]:
         """Get an upload server with credentials (for internal use)."""
         conn = self.db.get_connection()
@@ -82,7 +83,7 @@ class UploadServerRepository:
         finally:
             cursor.close()
             conn.close()
-    
+
     def get_all_servers(self, include_inactive: bool = False) -> List[Dict[str, Any]]:
         """Get all upload servers."""
         conn = self.db.get_connection()
@@ -99,7 +100,7 @@ class UploadServerRepository:
             if not include_inactive:
                 query += " WHERE us.is_active = TRUE"
             query += " ORDER BY us.name"
-            
+
             cursor.execute(query)
             return cursor.fetchall()
         except Exception as e:
@@ -108,43 +109,40 @@ class UploadServerRepository:
         finally:
             cursor.close()
             conn.close()
-    
+
     def update_server(self, server_id: int, data: Dict[str, Any]) -> bool:
         """Update an upload server."""
         conn = self.db.get_connection()
         try:
             cursor = conn.cursor()
-            
-            # Build dynamic update query
+
             update_fields = []
             values = []
-            
+
             allowed_fields = [
                 'name', 'ip_address', 'port', 'protocol', 'username',
                 'base_path', 'version_file_path', 'is_active', 'metadata'
             ]
-            
+
             for field in allowed_fields:
                 if field in data:
                     update_fields.append(f"{field} = %s")
                     values.append(data[field])
-            
-            # Handle password separately (only update if provided)
+
             if data.get('password'):
                 update_fields.append("password = %s")
                 values.append(data['password'])
-            
-            # Handle ssh_key separately
+
             if data.get('ssh_key'):
                 update_fields.append("ssh_key = %s")
                 values.append(data['ssh_key'])
-            
+
             if not update_fields:
                 return True
-            
+
             values.append(server_id)
             query = f"UPDATE upload_servers SET {', '.join(update_fields)} WHERE id = %s"
-            
+
             cursor.execute(query, values)
             conn.commit()
             return cursor.rowcount > 0
@@ -155,7 +153,7 @@ class UploadServerRepository:
         finally:
             cursor.close()
             conn.close()
-    
+
     def delete_server(self, server_id: int) -> bool:
         """Delete an upload server."""
         conn = self.db.get_connection()
@@ -175,20 +173,21 @@ class UploadServerRepository:
 
 class GuestOSUploadRepository:
     """Repository for guest OS upload operations."""
-    
+
     def __init__(self):
         self.db = DatabaseManager()
-    
+
     def create_upload(self, data: Dict[str, Any]) -> Optional[int]:
         """Create a new upload record."""
         conn = self.db.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO guest_os_uploads 
+                INSERT INTO guest_os_uploads
                 (server_id, image_name, file_name, file_path, file_size, file_type,
                  version, checksum, changelog, status, uploaded_by, metadata)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
             """, (
                 data.get('server_id'),
                 data.get('image_name'),
@@ -204,7 +203,7 @@ class GuestOSUploadRepository:
                 data.get('metadata')
             ))
             conn.commit()
-            return cursor.lastrowid
+            return cursor.fetchone()[0]
         except Exception as e:
             logger.error(f"Error creating upload record: {e}")
             conn.rollback()
@@ -212,7 +211,7 @@ class GuestOSUploadRepository:
         finally:
             cursor.close()
             conn.close()
-    
+
     def get_upload_by_id(self, upload_id: int) -> Optional[Dict[str, Any]]:
         """Get an upload record by ID."""
         conn = self.db.get_connection()
@@ -232,7 +231,7 @@ class GuestOSUploadRepository:
         finally:
             cursor.close()
             conn.close()
-    
+
     def get_uploads_by_server(self, server_id: int, limit: int = 50) -> List[Dict[str, Any]]:
         """Get upload history for a server."""
         conn = self.db.get_connection()
@@ -253,7 +252,7 @@ class GuestOSUploadRepository:
         finally:
             cursor.close()
             conn.close()
-    
+
     def get_uploads_by_image(self, server_id: int, image_name: str) -> List[Dict[str, Any]]:
         """Get upload history for a specific image on a server."""
         conn = self.db.get_connection()
@@ -273,8 +272,8 @@ class GuestOSUploadRepository:
         finally:
             cursor.close()
             conn.close()
-    
-    def update_upload_status(self, upload_id: int, status: str, 
+
+    def update_upload_status(self, upload_id: int, status: str,
                             error_message: str = None) -> bool:
         """Update upload status."""
         conn = self.db.get_connection()
@@ -282,13 +281,13 @@ class GuestOSUploadRepository:
             cursor = conn.cursor()
             if status == 'completed':
                 cursor.execute("""
-                    UPDATE guest_os_uploads 
+                    UPDATE guest_os_uploads
                     SET status = %s, completed_at = NOW()
                     WHERE id = %s
                 """, (status, upload_id))
             elif status == 'failed':
                 cursor.execute("""
-                    UPDATE guest_os_uploads 
+                    UPDATE guest_os_uploads
                     SET status = %s, error_message = %s, completed_at = NOW()
                     WHERE id = %s
                 """, (status, error_message, upload_id))
@@ -305,7 +304,7 @@ class GuestOSUploadRepository:
         finally:
             cursor.close()
             conn.close()
-    
+
     def update_upload_checksum(self, upload_id: int, checksum: str) -> bool:
         """Update upload checksum after completion."""
         conn = self.db.get_connection()
@@ -323,7 +322,7 @@ class GuestOSUploadRepository:
         finally:
             cursor.close()
             conn.close()
-    
+
     def delete_upload(self, upload_id: int) -> bool:
         """Delete an upload record."""
         conn = self.db.get_connection()

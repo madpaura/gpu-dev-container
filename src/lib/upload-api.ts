@@ -2,7 +2,7 @@
  * API client for Guest OS upload operations
  */
 
-const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}`;
+const API_BASE_URL = `${window.location.protocol}//${window.location.host}`;
 
 // ==================== Types ====================
 
@@ -268,7 +268,7 @@ export const uploadApi = {
         resolve({ success: false, error: 'Upload failed' });
       });
 
-      xhr.open('POST', `${API_BASE_URL}/api/admin/upload-servers/${serverId}/upload`);
+      xhr.open('POST', `${API_BASE_URL}/admin/upload-servers/${serverId}/upload`);
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       xhr.send(formData);
     });

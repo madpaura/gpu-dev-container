@@ -20,7 +20,7 @@ from resource_allocator import PortManager
 logger.add("agent_service.log", rotation="500 MB", retention="10 days", level="INFO")
 
 # Load environment variables
-load_dotenv(".env", override=True)
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'), override=True)
 
 class DockerContainerManager:
     def __init__(self):
@@ -48,42 +48,20 @@ class DockerContainerManager:
         memory_reservation=None,
         host_name="cx-qvp",
     ):
-        self.lock.acquire()
-        try:
+        with self.lock:
             try:
-                self.client.images.get(image_name)
-            except docker.errors.ImageNotFound:
-                logger.warning(f"Pulling image {image_name}...")
                 try:
-                    image = self.client.images.pull(image_name)
-                except docker.errors.APIError as e:
-                    logger.error("Failed pulling image")
-                    return None, f"Failed pulling image {image_name} Exception : {e}"
+                    self.client.images.get(image_name)
+                except docker.errors.ImageNotFound:
+                    logger.warning(f"Pulling image {image_name}...")
+                    try:
+                        self.client.images.pull(image_name)
+                    except docker.errors.APIError as e:
+                        logger.error("Failed pulling image")
+                        return None, f"Failed pulling image {image_name} Exception : {e}"
 
-            # Try with nvidia runtime first, fallback to no runtime if not available
-            try:
-                container = self.client.containers.run(
-                    image=image_name,
-                    name=container_name,
-                    ports=ports,
-                    volumes=volumes,
-                    environment=environment,
-                    command=command,
-                    detach=detach,
-                    cpu_count=cpu_count,
-                    cpu_percent=cpu_percent,
-                    mem_limit=memory_limit,
-                    memswap_limit=memory_swap,
-                    hostname=host_name,
-                    runtime="nvidia",
-                    privileged=True,
-                    # IMPORTANT: Do NOT set remove=True - this causes container data loss on stop
-                    # Container should persist so user data in volumes is retained
-                    remove=False,
-                )
-            except docker.errors.APIError as e:
-                if "runtime" in str(e).lower() and "nvidia" in str(e).lower():
-                    logger.warning("NVIDIA runtime not available, creating container without GPU support")
+                # Try with nvidia runtime first, fallback if not available
+                try:
                     container = self.client.containers.run(
                         image=image_name,
                         name=container_name,
@@ -97,70 +75,68 @@ class DockerContainerManager:
                         mem_limit=memory_limit,
                         memswap_limit=memory_swap,
                         hostname=host_name,
+                        runtime="nvidia",
                         privileged=True,
+                        # IMPORTANT: Do NOT set remove=True - this causes container data loss on stop
                         remove=False,
                     )
-                else:
-                    raise
-            logger.success(f"Container created successfully: {container.name}")
-            return container, "Success"
+                except docker.errors.APIError as e:
+                    if "runtime" in str(e).lower() and "nvidia" in str(e).lower():
+                        logger.warning("NVIDIA runtime not available, creating container without GPU support")
+                        container = self.client.containers.run(
+                            image=image_name,
+                            name=container_name,
+                            ports=ports,
+                            volumes=volumes,
+                            environment=environment,
+                            command=command,
+                            detach=detach,
+                            cpu_count=cpu_count,
+                            cpu_percent=cpu_percent,
+                            mem_limit=memory_limit,
+                            memswap_limit=memory_swap,
+                            hostname=host_name,
+                            privileged=True,
+                            remove=False,
+                        )
+                    else:
+                        raise
+                logger.success(f"Container created successfully: {container.name}")
+                return container, "Success"
 
-        except docker.errors.APIError as e:
-            logger.error(f"Error creating container: {e}")
-            return None, f"Error creating container: {e}"
-        finally:
-            self.lock.release()
+            except docker.errors.APIError as e:
+                logger.error(f"Error creating container: {e}")
+                return None, f"Error creating container: {e}"
 
     def list_container(self, name):
-        self.lock.acquire()
-        try:
-            container = self.client.containers.get(name)
-            return container
-        except docker.errors.NotFound:
-            logger.error(f"Container {name} not found")
-            return None
-        except docker.errors.APIError as e:
-            logger.error(f"Error getting container: {e}")
-            return None
-        finally:
-            self.lock.release()
+        with self.lock:
+            try:
+                return self.client.containers.get(name)
+            except docker.errors.NotFound:
+                logger.error(f"Container {name} not found")
+                return None
+            except docker.errors.APIError as e:
+                logger.error(f"Error getting container: {e}")
+                return None
 
     def start_container(self, container_id_or_name, recreate_if_missing=False, user_data=None):
-        """Start a container. If container is not found and recreate_if_missing=True, recreate it.
-        
-        Args:
-            container_id_or_name: Container ID or name
-            recreate_if_missing: If True, recreate container when not found
-            user_data: Dict with user info needed for recreation (username, ports, etc.)
-        
-        Returns:
-            True if started successfully, False otherwise
-        """
-        self.lock.acquire()
+        """Start a container. If not found and recreate_if_missing=True, recreate from existing workdir."""
         try:
-            container = self.client.containers.get(container_id_or_name)
-            container.start()
+            with self.lock:
+                container = self.client.containers.get(container_id_or_name)
+                container.start()
             logger.success(f"Container {container_id_or_name} started successfully")
             return True
         except docker.errors.NotFound:
             logger.warning(f"Container {container_id_or_name} not found")
-            
-            # If recreation is enabled and we have user data, recreate the container
             if recreate_if_missing and user_data:
                 logger.info(f"Attempting to recreate container {container_id_or_name}")
-                self.lock.release()  # Release lock before calling create_container_from_workdir
-                try:
-                    return self.create_container_from_workdir(user_data)
-                finally:
-                    self.lock.acquire()  # Reacquire lock for finally block
-            else:
-                logger.error(f"Container {container_id_or_name} not found and recreation not enabled")
-                return False
+                return self.create_container_from_workdir(user_data)
+            logger.error(f"Container {container_id_or_name} not found and recreation not enabled")
+            return False
         except docker.errors.APIError as e:
             logger.error(f"Error starting container: {e}")
             return False
-        finally:
-            self.lock.release()
 
     def create_container_from_workdir(self, user_data):
         """Recreate a container using existing workdir for a user.
@@ -210,7 +186,7 @@ class DockerContainerManager:
             config = docker_helper.build_container_config(username, dir_deploy, start_port)
             
             # Get container name
-            container_name = docker_helper.get_contianer_name(username)
+            container_name = docker_helper.get_container_name(username)
             
             # Get resource limits from user_data or use defaults
             cpu_count = user_data.get('cpu_count') if user_data.get('cpu_count') else int(os.getenv("DOCKER_CPU", 2))
@@ -285,7 +261,7 @@ class DockerContainerManager:
             logger.info(f"Recreating container for user {username} (wipe_data={wipe_data})")
             
             # Get container name
-            container_name = docker_helper.get_contianer_name(username)
+            container_name = docker_helper.get_container_name(username)
             
             # Step 1: Stop and remove existing container
             try:
@@ -402,121 +378,102 @@ class DockerContainerManager:
             return result
 
     def stop_container(self, container_id_or_name):
-        self.lock.acquire()
-        try:
-            container = self.client.containers.get(container_id_or_name)
-            container.stop()
-            logger.success(f"Container {container_id_or_name} stopped successfully")
-            return True
-        except docker.errors.NotFound:
-            logger.error(f"Container {container_id_or_name} not found")
-            return False
-        except docker.errors.APIError as e:
-            logger.error(f"Error stopping container: {e}")
-            return False
-        finally:
-            self.lock.release()
-
-
-    def restart_container(self, container_id_or_name):
-        self.lock.acquire()
-        try:
-            container = self.client.containers.get(container_id_or_name)
-            container.restart()
-            logger.success(f"Container {container_id_or_name} restarted successfully")
-            return True
-        except docker.errors.NotFound:
-            logger.error(f"Container {container_id_or_name} not found")
-            return False
-        except docker.errors.APIError as e:
-            logger.error(f"Error stopping container: {e}")
-            return False
-        finally:
-            self.lock.release()
-
-    def remove_container(self, container_id_or_name, force=False):
-        self.lock.acquire()
-        try:
-            container = self.client.containers.get(container_id_or_name)
-            container.remove(force=force)
-            logger.success(f"Container {container_id_or_name} removed successfully")
-            return True
-        except docker.errors.NotFound:
-            logger.error(f"Container {container_id_or_name} not found")
-            return False
-        except docker.errors.APIError as e:
-            logger.error(f"Error removing container: {e}")
-            return False
-        finally:
-            self.lock.release()
-
-    def delete_container(self, container_id_or_name, user_id=None, username=None):
-        self.lock.acquire()
-        try:
-            result = {
-                'success': False,
-                'message': '',
-                'container_stopped': False,
-                'container_removed': False,
-                'ports_deallocated': False
-            }
-            
+        with self.lock:
             try:
                 container = self.client.containers.get(container_id_or_name)
-                
-                # Stop container if it's running
-                if container.status == 'running':
-                    try:
-                        container.stop(timeout=10)
-                        result['container_stopped'] = True
-                        logger.info(f"Container {container_id_or_name} stopped successfully")
-                    except docker.errors.APIError as e:
-                        logger.warning(f"Error stopping container {container_id_or_name}: {e}")
-                
-                # Remove the container
-                try:
-                    container.remove(force=True)
-                    result['container_removed'] = True
-                    logger.success(f"Container {container_id_or_name} removed successfully")
-                except docker.errors.APIError as e:
-                    logger.error(f"Error removing container {container_id_or_name}: {e}")
-                    result['message'] = f"Failed to remove container: {e}"
-                    return result
-                    
+                container.stop()
+                logger.success(f"Container {container_id_or_name} stopped successfully")
+                return True
             except docker.errors.NotFound:
-                logger.warning(f"Container {container_id_or_name} not found, may already be deleted")
-                result['container_removed'] = True  # Consider it removed if not found
-            
-            # Deallocate ports if user_id is provided
+                logger.error(f"Container {container_id_or_name} not found")
+                return False
+            except docker.errors.APIError as e:
+                logger.error(f"Error stopping container: {e}")
+                return False
+
+    def restart_container(self, container_id_or_name):
+        with self.lock:
+            try:
+                container = self.client.containers.get(container_id_or_name)
+                container.restart()
+                logger.success(f"Container {container_id_or_name} restarted successfully")
+                return True
+            except docker.errors.NotFound:
+                logger.error(f"Container {container_id_or_name} not found")
+                return False
+            except docker.errors.APIError as e:
+                logger.error(f"Error restarting container: {e}")
+                return False
+
+    def remove_container(self, container_id_or_name, force=False):
+        with self.lock:
+            try:
+                container = self.client.containers.get(container_id_or_name)
+                container.remove(force=force)
+                logger.success(f"Container {container_id_or_name} removed successfully")
+                return True
+            except docker.errors.NotFound:
+                logger.error(f"Container {container_id_or_name} not found")
+                return False
+            except docker.errors.APIError as e:
+                logger.error(f"Error removing container: {e}")
+                return False
+
+    def delete_container(self, container_id_or_name, user_id=None, username=None):
+        result = {
+            'success': False,
+            'message': '',
+            'container_stopped': False,
+            'container_removed': False,
+            'ports_deallocated': False
+        }
+        try:
+            with self.lock:
+                try:
+                    container = self.client.containers.get(container_id_or_name)
+
+                    if container.status == 'running':
+                        try:
+                            container.stop(timeout=10)
+                            result['container_stopped'] = True
+                            logger.info(f"Container {container_id_or_name} stopped")
+                        except docker.errors.APIError as e:
+                            logger.warning(f"Error stopping container {container_id_or_name}: {e}")
+
+                    try:
+                        container.remove(force=True)
+                        result['container_removed'] = True
+                        logger.success(f"Container {container_id_or_name} removed")
+                    except docker.errors.APIError as e:
+                        logger.error(f"Error removing container {container_id_or_name}: {e}")
+                        result['message'] = f"Failed to remove container: {e}"
+                        return result
+
+                except docker.errors.NotFound:
+                    logger.warning(f"Container {container_id_or_name} not found, treating as removed")
+                    result['container_removed'] = True
+
+            # Port deallocation outside the lock — doesn't need it
             if user_id:
                 try:
-                    port_manager = PortManager()
-                    deallocated_ports = port_manager.deallocate_ports(username)
-                    if deallocated_ports:
-                        result['ports_deallocated'] = True
-                        result['deallocated_ports'] = deallocated_ports
-                        logger.info(f"Ports deallocated for user {username}: {deallocated_ports}")
+                    deallocated = PortManager().deallocate_ports(username)
+                    result['ports_deallocated'] = True
+                    if deallocated:
+                        logger.info(f"Ports deallocated for user {username}")
                     else:
-                        logger.info(f"No ports found to deallocate for user {username}")
-                        result['ports_deallocated'] = True  # No ports to deallocate is also success
+                        logger.info(f"No ports to deallocate for user {username}")
                 except Exception as e:
                     logger.error(f"Error deallocating ports for user {username}: {e}")
                     result['message'] += f" Port deallocation failed: {e}"
-            
-            # Determine overall success
+
             if result['container_removed']:
                 result['success'] = True
-                if result['container_stopped'] and result['ports_deallocated']:
-                    result['message'] = f"Container {container_id_or_name} successfully deleted and ports deallocated"
-                elif result['container_stopped']:
-                    result['message'] = f"Container {container_id_or_name} successfully stopped and removed"
-                else:
-                    result['message'] = f"Container {container_id_or_name} successfully removed"
+                result['message'] = f"Container {container_id_or_name} deleted successfully"
             else:
                 result['message'] = f"Failed to delete container {container_id_or_name}"
-                
+
             return result
-            
+
         except Exception as e:
             logger.error(f"Unexpected error deleting container {container_id_or_name}: {e}")
             return {
@@ -526,53 +483,51 @@ class DockerContainerManager:
                 'container_removed': False,
                 'ports_deallocated': False
             }
-        finally:
-            self.lock.release()
 
     def get_container_stats(self, container):
-        self.lock.acquire()
+        # container.stats(stream=False) is a blocking Docker API call (~1s).
+        # Do NOT hold the lock during it — it would starve all other operations.
         try:
             stats = container.stats(stream=False)
+        except docker.errors.APIError as e:
+            logger.error(f"Error fetching stats for container: {e}")
+            return {"cpu_usage": 0, "memory_usage": 0, "memory_used": 0, "memory_limit": 0}
+        except Exception as e:
+            logger.error(f"Unexpected error fetching stats: {e}")
+            return {"cpu_usage": 0, "memory_usage": 0, "memory_used": 0, "memory_limit": 0}
+
+        try:
             cpu_stats = stats.get("cpu_stats", {})
             precpu_stats = stats.get("precpu_stats", {})
             memory_stats = stats.get("memory_stats", {})
 
-            try:
-                cpu_total = cpu_stats.get("cpu_usage", {}).get("total_usage", 0)
-                precpu_total = precpu_stats.get("cpu_usage", {}).get("total_usage", 0)
-                system_cpu_usage = cpu_stats.get("system_cpu_usage", 0)
-                previous_system_cpu_usage = precpu_stats.get("system_cpu_usage", 0)
+            cpu_total = cpu_stats.get("cpu_usage", {}).get("total_usage", 0)
+            precpu_total = precpu_stats.get("cpu_usage", {}).get("total_usage", 0)
+            system_cpu_usage = cpu_stats.get("system_cpu_usage", 0)
+            previous_system_cpu_usage = precpu_stats.get("system_cpu_usage", 0)
+            online_cpus = cpu_stats.get("online_cpus", 1) or 1
+            cpu_delta = cpu_total - precpu_total
+            system_delta = system_cpu_usage - previous_system_cpu_usage
 
-                online_cpus = cpu_stats.get("online_cpus", 1) or 1
-                cpu_delta = cpu_total - precpu_total
-                system_delta = system_cpu_usage - previous_system_cpu_usage
+            cpu_usage = (
+                (cpu_delta / system_delta) * 100.0 * online_cpus
+                if system_delta > 0 and cpu_delta > 0
+                else 0.0
+            )
 
-                cpu_usage = (
-                    (cpu_delta / system_delta) * 100.0 * online_cpus
-                    if system_delta > 0 and cpu_delta > 0
-                    else 0.0
-                )
+            memory_usage = memory_stats.get("usage", 0)
+            memory_limit = memory_stats.get("limit", 1) or 1
+            memory_percentage = (memory_usage / memory_limit) * 100.0
 
-                memory_usage = memory_stats.get("usage", 0)
-                memory_limit = memory_stats.get("limit", 1) or 1
-                memory_percentage = (memory_usage / memory_limit) * 100.0
-
-                return {
-                    "cpu_usage": round(cpu_usage, 2),
-                    "memory_usage": round(memory_percentage, 2),
-                    "memory_used": round(memory_usage / (1024 * 1024), 2),
-                    "memory_limit": round(memory_limit / (1024 * 1024), 2),
-                }
-            except Exception as e:
-                logger.error(f"Error calculating stats: {str(e)}")
-                return {
-                    "cpu_usage": 0,
-                    "memory_usage": 0,
-                    "memory_used": 0,
-                    "memory_limit": 0,
-                }
-        finally:
-            self.lock.release()
+            return {
+                "cpu_usage": round(cpu_usage, 2),
+                "memory_usage": round(memory_percentage, 2),
+                "memory_used": round(memory_usage / (1024 * 1024), 2),
+                "memory_limit": round(memory_limit / (1024 * 1024), 2),
+            }
+        except Exception as e:
+            logger.error(f"Error calculating stats: {e}")
+            return {"cpu_usage": 0, "memory_usage": 0, "memory_used": 0, "memory_limit": 0}
 
 
 class DockerHelper:
@@ -593,7 +548,7 @@ class DockerHelper:
             "PGID": os.getegid(),
             "TZ": "Etc/UTC",
             "DEFAULT_WORKSPACE": os.getenv("DEFAULT_WORKSPACE", "/config/workspace"),
-            "SUDO_PASSWORD": os.getenv("SUDO_PASSWORD", "abc"),
+            "SUDO_PASSWORD": os.getenv("SUDO_PASSWORD") or _warn_missing_sudo_password(),
             "JUPYTER_BASE_URL": f"/user/{username}/jupyter",
             "JUPYTERHUB_SERVICE_PREFIX": f"/user/{username}/jupyter/",
         }
@@ -625,6 +580,32 @@ class DockerHelper:
                         logger.warning(f"Could not update permissions for {path}: {e}")
                 except Exception as e:
                     logger.warning(f"Could not update permissions for {path}: {e}")
+
+        # Pre-create .local/share subtree so Docker doesn't create parents as root
+        # when mounting the nested code-server volume inside the workspace.
+        # os.makedirs only chowns the leaf; we need every dir in the chain owned
+        # by uid 1000, otherwise Jupyter fails with PermissionError at startup.
+        local_share = os.path.join(workspace_path_host, ".local", "share")
+        for rel_dir in ["jupyter/runtime", "notebooks"]:
+            dir_path = os.path.join(local_share, rel_dir)
+            try:
+                os.makedirs(dir_path, exist_ok=True)
+            except PermissionError:
+                subprocess.run(["sudo", "mkdir", "-p", dir_path], check=True)
+            except Exception as e:
+                logger.warning(f"Could not mkdir {dir_path}: {e}")
+
+        # chown the entire .local tree in one pass — catches any root-owned dirs
+        # that Docker may have created for previous nested mounts
+        local_root = os.path.join(workspace_path_host, ".local")
+        if os.path.exists(local_root):
+            try:
+                for dirpath, dirnames, _ in os.walk(local_root):
+                    os.chown(dirpath, 1000, 1000)
+            except PermissionError:
+                subprocess.run(["sudo", "chown", "-R", "1000:1000", local_root], check=True)
+            except Exception as e:
+                logger.warning(f"Could not chown {local_root}: {e}")
         
         # Setup volumes
         # workspace -> home folder for persistence
@@ -806,9 +787,13 @@ class DockerHelper:
             logger.error(f"Failed to create overlay image: {e}")
             return False
 
-    def get_contianer_name(self, user):
-        name = f"code-server-{user}-{self.generate_user_hash(user)}"
-        return name
+    def get_container_name(self, user):
+        return f"code-server-{user}-{self.generate_user_hash(user)}"
+
+
+def _warn_missing_sudo_password():
+    logger.warning("SUDO_PASSWORD env var is not set; container will use its own default")
+    return ""
 
 
 # Initialize Docker manager
@@ -837,10 +822,8 @@ def init_backend_routes(app):
             "PGID": os.getegid(),
             "TZ": "Etc/UTC",
             "DEFAULT_WORKSPACE": os.getenv("DEFAULT_WORKSPACE", "/config/workspace"),
-            "SUDO_PASSWORD": os.getenv("SUDO_PASSWORD", "abc"),
-            # Set Jupyter base URL for proper subpath routing in multi-user environment
+            "SUDO_PASSWORD": os.getenv("SUDO_PASSWORD") or _warn_missing_sudo_password(),
             "JUPYTER_BASE_URL": f"/user/{user}/jupyter",
-            # Legacy JupyterHub compatibility (kept for backward compatibility)
             "JUPYTERHUB_SERVICE_PREFIX": f"/user/{user}/jupyter/",
         }
 
@@ -873,7 +856,7 @@ def init_backend_routes(app):
                 return jsonify({"success": False, "error": "Failed creating guest os overlay"}), 400
 
         # TODO revamp this section
-        container_name = docker_helper.get_contianer_name(user)
+        container_name = docker_helper.get_container_name(user)
         
         # Check if container already exists
         existing_container = docker_manager.list_container(container_name)

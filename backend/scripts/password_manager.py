@@ -2,7 +2,7 @@
 """
 Password Manager Script
 -----------------------
-Backup and restore user passwords from MySQL database.
+Backup and restore user passwords from PostgreSQL database.
 
 Usage:
     # Backup passwords to file
@@ -19,7 +19,7 @@ Environment Variables:
     DB_NAME     - Database name (default: user_auth_db)
     DB_USER     - Database user (default: root)
     DB_PASSWORD - Database password (default: 12qwaszx)
-    DB_PORT     - Database port (default: 3306)
+    DB_PORT     - Database port (default: 5432)
 """
 
 import argparse
@@ -30,9 +30,10 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 try:
-    import mysql.connector
+    import psycopg2
+    import psycopg2.extras
 except ImportError:
-    print("Error: mysql-connector-python is required. Install with: pip install mysql-connector-python")
+    print("Error: psycopg2-binary is required. Install with: pip install psycopg2-binary")
     sys.exit(1)
 
 
@@ -46,12 +47,12 @@ class PasswordManager:
             'database': os.getenv('DB_NAME', 'user_auth_db'),
             'user': os.getenv('DB_USER', 'root'),
             'password': os.getenv('DB_PASSWORD', '12qwaszx'),
-            'port': int(os.getenv('DB_PORT', 3306)),
+            'port': int(os.getenv('DB_PORT', 5432)),
         }
     
     def get_connection(self):
         """Get database connection."""
-        return mysql.connector.connect(**self.db_config)
+        return psycopg2.connect(**self.db_config)
     
     def get_all_users_with_passwords(self) -> List[Dict]:
         """Get all users with their password hashes."""
@@ -63,7 +64,7 @@ class PasswordManager:
         
         conn = self.get_connection()
         try:
-            cursor = conn.cursor(dictionary=True)
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cursor.execute(query)
             users = cursor.fetchall()
             return users
@@ -77,7 +78,7 @@ class PasswordManager:
         
         conn = self.get_connection()
         try:
-            cursor = conn.cursor(dictionary=True)
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cursor.execute(query, (username,))
             return cursor.fetchone()
         finally:
@@ -94,7 +95,7 @@ class PasswordManager:
             cursor.execute(query, (password_hash, username))
             conn.commit()
             return cursor.rowcount > 0
-        except mysql.connector.Error as e:
+        except psycopg2.Error as e:
             print(f"Error updating password for {username}: {e}")
             return False
         finally:
@@ -234,7 +235,7 @@ class PasswordManager:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Backup and restore user passwords from MySQL database",
+        description="Backup and restore user passwords from PostgreSQL database",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -297,7 +298,7 @@ Environment Variables:
         conn = manager.get_connection()
         conn.close()
         print(f"Connected to database: {manager.db_config['host']}:{manager.db_config['database']}\n")
-    except mysql.connector.Error as e:
+    except psycopg2.Error as e:
         print(f"Error connecting to database: {e}")
         print("\nCheck your environment variables:")
         print("  DB_HOST, DB_NAME, DB_USER, DB_PASSWORD, DB_PORT")

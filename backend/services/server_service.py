@@ -3,19 +3,19 @@ import os
 from typing import List, Dict, Any, Optional
 from loguru import logger
 
-from database import UserDatabase
+from database import UserDatabase, AgentRepository
 from services.agent_service import AgentService
 from models.server import ServerInfo, ServerResources, ServerStats, ServerActionRequest, AddServerRequest
-from utils.helpers import read_agents_file, write_agents_file
 from utils.validators import is_valid_ip
 
 
 class ServerService:
-    
+
     def __init__(self, db: UserDatabase, agent_service: AgentService, agent_port: int):
         self.db = db
         self.agent_service = agent_service
         self.agent_port = agent_port
+        self.agent_repo = AgentRepository()
         self.cache = {
             'data': None,
             'timestamp': 0,
@@ -33,11 +33,11 @@ class ServerService:
         
         # Cache is expired or empty, fetch new data
         logger.info("Fetching fresh server data")
-        agents_list = read_agents_file()
-        
+        agents_list = self.agent_repo.get_agent_ips()
+
         # Query all agents concurrently (this is the optimization!)
         servers_resources = self.agent_service.query_available_agents(agents_list, self.agent_port)
-        
+
         # Process the data
         servers_data = []
         stats_data = {
@@ -111,7 +111,7 @@ class ServerService:
     
     def get_server_resources(self) -> List[Dict[str, Any]]:
         try:
-            agents_list = read_agents_file()
+            agents_list = self.agent_repo.get_agent_ips()
             servers = self.agent_service.query_available_agents(agents_list, self.agent_port)
             return servers if servers else []
         except Exception as e:
@@ -170,19 +170,11 @@ class ServerService:
     def _delete_server(self, server_id: str, server_ip: str, username: str, ip_address: str = None) -> Dict[str, Any]:
         """Delete a server from the system."""
         try:
-            # Read existing agents (list of IP addresses as strings)
-            agents = read_agents_file()
-            
-            # Check if the server exists
-            if server_ip not in agents:
+            if not self.agent_repo.agent_exists(server_ip):
                 return {'success': False, 'error': f'Server {server_ip} not found'}
-            
-            # Remove the server from the list
-            agents = [agent for agent in agents if agent != server_ip]
-            
-            # Write the updated agents file
-            if not write_agents_file(agents):
-                return {'success': False, 'error': 'Failed to update agents file'}
+
+            if not self.agent_repo.delete_agent(server_ip):
+                return {'success': False, 'error': 'Failed to remove agent from database'}
             
             # Clear cache to force refresh
             self.cache['data'] = None
@@ -239,16 +231,10 @@ class ServerService:
             except ValueError:
                 return {'success': False, 'error': 'Invalid port number'}
             
-            # Read existing agents
-            agents = read_agents_file()
-            
-            # Check if IP already exists
-            if ip in agents:
+            if self.agent_repo.agent_exists(ip):
                 return {'success': False, 'error': 'Server with this IP already exists'}
-            
-            # Add new server to agents list
-            agents.append(ip)
-            if not write_agents_file(agents):
+
+            if not self.agent_repo.register_agent(ip, name=name):
                 return {'success': False, 'error': 'Failed to save server configuration'}
             
             # Invalidate cache so fresh data is fetched

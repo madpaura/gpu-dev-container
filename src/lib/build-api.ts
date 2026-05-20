@@ -2,7 +2,7 @@
  * API client for Docker registry and build operations
  */
 
-const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}`;
+const API_BASE_URL = `${window.location.protocol}//${window.location.host}`;
 
 // ==================== Types ====================
 

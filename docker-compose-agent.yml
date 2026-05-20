@@ -9,39 +9,39 @@ services:
     container_name: dock-dash-agent
     environment:
       # Agent configuration
-      AGENT_PORT: 8510
-      
+      AGENT_PORT: ${AGENT_PORT:-8510}
+
       # Docker configuration
-      DOCKER_IMAGE: gpu-dev-environment
-      DOCKER_TAG: latest
-      DOCKER_HOSTNAME: cxl-dev
-      DOCKER_CPU: 4
-      DOCKER_CPU_PERCENT: 100
-      DOCKER_MEM_LMT: 4g
-      DOCKER_MEM_SWAP: 5g
-      
+      DOCKER_IMAGE: ${DOCKER_IMAGE:-gpu-dev-environment}
+      DOCKER_TAG: ${DOCKER_TAG:-latest}
+      DOCKER_HOSTNAME: ${DOCKER_HOSTNAME:-cxl-dev}
+      DOCKER_CPU: ${DOCKER_CPU:-4}
+      DOCKER_CPU_PERCENT: ${DOCKER_CPU_PERCENT:-100}
+      DOCKER_MEM_LMT: ${DOCKER_MEM_LMT:-4g}
+      DOCKER_MEM_SWAP: ${DOCKER_MEM_SWAP:-5g}
+
       # Code server configuration
-      CODE_DEFAULT_WORKSPACE: /workspace
-      CODE_PORT: 8080
-      CODE_CONFIG_MOUNT: /config
-      SUDO_PASSWORD: abc
-      
+      CODE_DEFAULT_WORKSPACE: ${CODE_DEFAULT_WORKSPACE:-/workspace}
+      CODE_PORT: ${CODE_PORT:-8080}
+      CODE_CONFIG_MOUNT: ${CODE_CONFIG_MOUNT:-/config}
+      SUDO_PASSWORD: ${SUDO_PASSWORD:-changeme}
+
       # Jupyter configuration
-      JUPYTER_PORT: 8888
-      
+      JUPYTER_PORT: ${JUPYTER_PORT:-8888}
+
       # Paths
-      QVP_BINARY_MOUNT: /opt/qvp
-      GUEST_OS_MOUNT: /opt/os/guestos
-      TOOLS_MOUNT: /opt/tools
-      WORKDIR_TEMPLATE: /home/vishwa/template/
-      WORKDIR_DEPLOY: /home/vishwa/vms/
-      
+      QVP_BINARY_MOUNT: ${QVP_BINARY_MOUNT:-/opt/qvp}
+      GUEST_OS_MOUNT: ${GUEST_OS_MOUNT:-/opt/os/guestos}
+      TOOLS_MOUNT: ${TOOLS_MOUNT:-/opt/tools}
+      WORKDIR_TEMPLATE: ${WORKDIR_TEMPLATE:-/home/vishwa/template/}
+      WORKDIR_DEPLOY: ${WORKDIR_DEPLOY:-/home/vishwa/vms/}
+
       # Manager server (if connecting to external backend)
-      MGMT_SERVER_IP: localhost
-      MGMT_SERVER_PORT: 8500
+      MGMT_SERVER_IP: ${MGMT_SERVER_IP:-localhost}
+      MGMT_SERVER_PORT: ${MGMT_SERVER_PORT:-8500}
     volumes:
-      - /home/vishwa:/home/vishwa
-      - /opt:/opt
+      - ${HOST_HOME:-/home/vishwa}:/home/vishwa
+      - ${HOST_OPT:-/opt}:/opt
       
       # Docker socket for container management (REQUIRED)
       - /var/run/docker.sock:/var/run/docker.sock
@@ -49,8 +49,6 @@ services:
       - ./backend/agent/logs:/app/logs
       # Port manager database (persistent)
       - ./backend/agent/port_manager.db:/app/port_manager.db
-      # Configuration files
-      - ./backend/config.toml:/app/config.toml
     network_mode: "host"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8510/health"]

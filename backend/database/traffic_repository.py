@@ -1,8 +1,8 @@
 """Traffic tracking repository for user access analytics."""
 
+import psycopg2
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
-import mysql.connector
 from .base import DatabaseManager
 
 
@@ -16,12 +16,12 @@ class TrafficRepository:
     def log_access(self, access_data: Dict[str, Any]) -> bool:
         """Log a user access event."""
         query = """
-        INSERT INTO user_access_logs 
-        (user_id, session_token, ip_address, user_agent, endpoint, method, 
+        INSERT INTO user_access_logs
+        (user_id, session_token, ip_address, user_agent, endpoint, method,
          status_code, access_time, session_start, bytes_sent, bytes_received)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
-        
+
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
@@ -40,7 +40,7 @@ class TrafficRepository:
             ))
             conn.commit()
             return True
-        except mysql.connector.Error as e:
+        except psycopg2.Error as e:
             print(f"Error logging access: {e}")
             return False
         finally:
@@ -51,29 +51,29 @@ class TrafficRepository:
         """Update session end time and calculate duration."""
         if end_time is None:
             end_time = datetime.now()
-            
+
         query = """
-        UPDATE user_access_logs 
+        UPDATE user_access_logs
         SET session_end = %s,
-            duration_seconds = TIMESTAMPDIFF(SECOND, session_start, %s)
+            duration_seconds = EXTRACT(EPOCH FROM (%s - session_start))::INT
         WHERE session_token = %s AND session_end IS NULL
         """
-        
+
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(query, (end_time, end_time, session_token))
             conn.commit()
             return cursor.rowcount > 0
-        except mysql.connector.Error as e:
+        except psycopg2.Error as e:
             print(f"Error updating session end: {e}")
             return False
         finally:
             cursor.close()
             conn.close()
 
-    def get_traffic_analytics(self, 
-                            start_date: datetime = None, 
+    def get_traffic_analytics(self,
+                            start_date: datetime = None,
                             end_date: datetime = None,
                             ip_filter: str = None,
                             user_filter: str = None) -> Dict[str, Any]:
@@ -83,7 +83,6 @@ class TrafficRepository:
         if end_date is None:
             end_date = datetime.now()
 
-        # Base WHERE clause
         where_conditions = ["access_time BETWEEN %s AND %s"]
         params = [start_date, end_date]
 
@@ -97,10 +96,9 @@ class TrafficRepository:
 
         where_clause = " AND ".join(where_conditions)
 
-        # Main analytics query
         query = f"""
-        SELECT 
-            DATE(access_time) as date,
+        SELECT
+            access_time::DATE as date,
             COUNT(*) as total_requests,
             COUNT(DISTINCT ip_address) as unique_ips,
             COUNT(DISTINCT user_id) as unique_users,
@@ -111,7 +109,7 @@ class TrafficRepository:
         FROM user_access_logs ual
         LEFT JOIN users u ON ual.user_id = u.id
         WHERE {where_clause}
-        GROUP BY DATE(access_time)
+        GROUP BY access_time::DATE
         ORDER BY date DESC
         """
 
@@ -121,9 +119,8 @@ class TrafficRepository:
             cursor.execute(query, params)
             daily_stats = cursor.fetchall()
 
-            # Get top IPs
             top_ips_query = f"""
-            SELECT 
+            SELECT
                 ip_address,
                 COUNT(*) as request_count,
                 COUNT(DISTINCT user_id) as unique_users,
@@ -138,9 +135,8 @@ class TrafficRepository:
             cursor.execute(top_ips_query, params)
             top_ips = cursor.fetchall()
 
-            # Get top users
             top_users_query = f"""
-            SELECT 
+            SELECT
                 u.username,
                 u.email,
                 COUNT(*) as request_count,
@@ -157,23 +153,21 @@ class TrafficRepository:
             cursor.execute(top_users_query, params)
             top_users = cursor.fetchall()
 
-            # Get hourly distribution
             hourly_query = f"""
-            SELECT 
-                HOUR(access_time) as hour,
+            SELECT
+                EXTRACT(HOUR FROM access_time)::INT as hour,
                 COUNT(*) as request_count
             FROM user_access_logs ual
             LEFT JOIN users u ON ual.user_id = u.id
             WHERE {where_clause}
-            GROUP BY HOUR(access_time)
+            GROUP BY EXTRACT(HOUR FROM access_time)
             ORDER BY hour
             """
             cursor.execute(hourly_query, params)
             hourly_distribution = cursor.fetchall()
 
-            # Get endpoint statistics
             endpoint_query = f"""
-            SELECT 
+            SELECT
                 endpoint,
                 COUNT(*) as request_count,
                 AVG(COALESCE(duration_seconds, 0)) as avg_duration,
@@ -200,7 +194,7 @@ class TrafficRepository:
                 }
             }
 
-        except mysql.connector.Error as e:
+        except psycopg2.Error as e:
             print(f"Error getting traffic analytics: {e}")
             return {}
         finally:
@@ -223,7 +217,7 @@ class TrafficRepository:
         where_clause = "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
 
         query = f"""
-        SELECT 
+        SELECT
             ual.session_token,
             ual.ip_address,
             u.username,
@@ -246,7 +240,7 @@ class TrafficRepository:
             cursor = conn.cursor(dictionary=True)
             cursor.execute(query, params)
             return cursor.fetchall()
-        except mysql.connector.Error as e:
+        except psycopg2.Error as e:
             print(f"Error getting user sessions: {e}")
             return []
         finally:
@@ -256,7 +250,7 @@ class TrafficRepository:
     def get_traffic_summary(self) -> Dict[str, Any]:
         """Get overall traffic summary statistics."""
         query = """
-        SELECT 
+        SELECT
             COUNT(*) as total_requests,
             COUNT(DISTINCT ip_address) as unique_ips,
             COUNT(DISTINCT user_id) as unique_users,
@@ -267,7 +261,7 @@ class TrafficRepository:
             MIN(access_time) as first_access,
             MAX(access_time) as last_access
         FROM user_access_logs
-        WHERE access_time >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+        WHERE access_time >= NOW() - INTERVAL '30 days'
         """
 
         conn = self.db_manager.get_connection()
@@ -276,7 +270,7 @@ class TrafficRepository:
             cursor.execute(query)
             result = cursor.fetchone()
             return result or {}
-        except mysql.connector.Error as e:
+        except psycopg2.Error as e:
             print(f"Error getting traffic summary: {e}")
             return {}
         finally:

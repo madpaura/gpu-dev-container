@@ -3,23 +3,23 @@ import os
 from typing import List, Dict, Any, Optional
 from loguru import logger
 
-from database import UserDatabase
+from database import UserDatabase, AgentRepository
 from services.agent_service import AgentService
 from models.docker import DockerImage, DockerImagesResponse, DockerImageDetailsResponse, DockerImagesRequest
-from utils.helpers import read_agents_file
 
 
 class DockerService:
-    
+
     def __init__(self, db: UserDatabase, agent_service: AgentService, agent_port: int):
         self.db = db
         self.agent_service = agent_service
         self.agent_port = agent_port
+        self.agent_repo = AgentRepository()
     
     def get_docker_images(self, server_id: Optional[str] = None) -> Dict[str, Any]:
         try:
             # Get list of available agents
-            agents = read_agents_file()
+            agents = self.agent_repo.get_agent_ips()
             
             if server_id:
                 # Convert server_id to IP if it's in format 'server-192-168-68-108'
@@ -72,7 +72,7 @@ class DockerService:
     
     def get_docker_image_details(self, server_id: str, image_id: str) -> Dict[str, Any]:
         try:
-            agents = read_agents_file()
+            agents = self.agent_repo.get_agent_ips()
             
             # Convert server_id to IP if it's in format 'server-192-168-68-108'
             agent_ip = server_id
@@ -99,7 +99,7 @@ class DockerService:
     def delete_docker_image(self, server_id: str, image_id: str, force: bool = False) -> Dict[str, Any]:
         """Delete a Docker image from a specific server."""
         try:
-            agents = read_agents_file()
+            agents = self.agent_repo.get_agent_ips()
             
             # Convert server_id to IP if it's in format 'server-192-168-68-108'
             agent_ip = server_id
@@ -127,7 +127,7 @@ class DockerService:
         """
         try:
             # Get list of available agents
-            agents = read_agents_file()
+            agents = self.agent_repo.get_agent_ips()
             
             # Query servers for basic info
             servers_resources = self.agent_service.query_available_agents(agents, self.agent_port)
@@ -191,7 +191,7 @@ class DockerService:
                 'total_images': total_images,
                 'total_size': total_size,
                 'servers_with_docker': servers_with_docker,
-                'total_servers': len(read_agents_file())
+                'total_servers': len(self.agent_repo.get_agent_ips())
             }
         
         except Exception as e:

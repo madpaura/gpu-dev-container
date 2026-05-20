@@ -81,4 +81,4 @@ if __name__ == '__main__':
     
     print(f"Starting agent server on port {port}")
     # Enable debug mode for auto-reload on code changes
-    app.run(host='0.0.0.0', port=port, debug=True, use_reloader=True)
+    app.run(host='0.0.0.0', port=port, debug=False)

@@ -32,6 +32,9 @@ _audit_service = AuditService(_db)
 
 @server_bp.route('/api/server-resources', methods=['GET'])
 def get_server_resources():
+    session, error_response, status_code = require_session_auth()
+    if error_response:
+        return error_response, status_code
     servers = _server_service.get_server_resources()
     if servers:
         return jsonify({'success': True, 'servers': servers})
@@ -128,7 +131,7 @@ def get_servers_for_users():
 
 @server_bp.route('/api/admin/servers/<server_id>/ssh/connect', methods=['POST'])
 def ssh_connect(server_id):
-    session, error_response, status_code = require_session_auth()
+    session, error_response, status_code = require_admin_auth()
     if error_response:
         return error_response, status_code
     data = request.get_json()
@@ -143,7 +146,7 @@ def ssh_connect(server_id):
 
 @server_bp.route('/api/admin/servers/ssh/<session_id>/execute', methods=['POST'])
 def ssh_execute(session_id):
-    session, error_response, status_code = require_session_auth()
+    session, error_response, status_code = require_admin_auth()
     if error_response:
         return error_response, status_code
     data = request.get_json()
@@ -157,7 +160,7 @@ def ssh_execute(session_id):
 
 @server_bp.route('/api/admin/servers/ssh/<session_id>/output', methods=['GET'])
 def ssh_get_output(session_id):
-    session, error_response, status_code = require_session_auth()
+    session, error_response, status_code = require_admin_auth()
     if error_response:
         return error_response, status_code
     result = _ssh_service.get_ssh_output(session_id)
@@ -168,7 +171,7 @@ def ssh_get_output(session_id):
 
 @server_bp.route('/api/admin/servers/ssh/<session_id>/status', methods=['GET'])
 def ssh_status(session_id):
-    session, error_response, status_code = require_session_auth()
+    session, error_response, status_code = require_admin_auth()
     if error_response:
         return error_response, status_code
     result = _ssh_service.get_ssh_session_status(session_id)
@@ -179,7 +182,7 @@ def ssh_status(session_id):
 
 @server_bp.route('/api/admin/servers/ssh/<session_id>/disconnect', methods=['POST'])
 def ssh_disconnect(session_id):
-    session, error_response, status_code = require_session_auth()
+    session, error_response, status_code = require_admin_auth()
     if error_response:
         return error_response, status_code
     result = _ssh_service.disconnect_ssh_session(session_id, '', get_client_ip(request))
@@ -225,6 +228,9 @@ def delete_docker_image(server_id, image_id):
 
 @server_bp.route('/api/audit-logs', methods=['GET'])
 def get_audit_logs():
+    session, error_response, status_code = require_admin_auth()
+    if error_response:
+        return error_response, status_code
     try:
         return jsonify({'success': True, 'logs': _audit_service.get_audit_logs()})
     except Exception as e:

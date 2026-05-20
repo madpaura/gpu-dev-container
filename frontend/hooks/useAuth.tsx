@@ -60,13 +60,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      console.log('useAuth: Calling authApi.login...');
       const response = await authApi.login(email, password);
-      console.log('useAuth: API response:', response);
 
       if (response.success && response.data) {
-        console.log('useAuth: Raw response.data:', response.data);
-        
         const userData: User = {
           id: response.data.user_id,
           name: response.data.name,
@@ -77,23 +73,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           permissions: response.data.permissions
         };
 
-        console.log('useAuth: Setting user data:', userData);
-        
-        // Update state and localStorage
         setUser(userData);
         localStorage.setItem('dockerManager_user', JSON.stringify(userData));
-
-        console.log('useAuth: User state updated, localStorage saved');
         return { success: true };
       }
 
-      console.error('useAuth: Login failed:', response.error || 'Unknown error');
       return {
         success: false,
         error: response.error || 'Invalid credentials'
       };
     } catch (error) {
-      console.error('useAuth: Login exception:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Login failed'

@@ -1,3 +1,10 @@
+# Secrets — never commit these
+.env
+backend/.env
+backend/admin.env
+backend/agent/.env
+*.env
+
 # Logs
 logs
 *.log

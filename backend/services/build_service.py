@@ -454,15 +454,13 @@ class BuildService:
         # Default to timestamp-based tag
         return f'build-{datetime.now().strftime("%Y%m%d-%H%M%S")}'
     
+    _SAFE_PAT_RE = re.compile(r'^[A-Za-z0-9_\-\.]{1,256}$')
+
     def _clone_repo(self, repo_url: str, branch: str, pat: str,
                    target_dir: str) -> Dict[str, Any]:
-        """Clone a git repository.
-        
-        Supports GitHub, GitLab, and Bitbucket with PAT authentication.
-        Handles both http:// and https:// URLs.
-        
-        For Bitbucket Server with Basic Auth disabled, uses Bearer token via http.extraHeader.
-        """
+        """Clone a git repository."""
+        if pat and not self._SAFE_PAT_RE.match(pat):
+            return {'success': False, 'error': 'Invalid PAT format'}
         try:
             # Set environment to prevent git from prompting for credentials
             env = os.environ.copy()

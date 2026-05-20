@@ -63,7 +63,7 @@ class UserService:
             logger.error(f"Error fetching user {user_id}: {e}")
             return None
     
-    def delete_user(self, user_id: int, admin_username: str, delete_workspace: bool = False) -> Dict[str, Any]:
+    def delete_user(self, user_id: int, admin_username: str, delete_workspace: bool = False, ip_address: str = None) -> Dict[str, Any]:
         result = {
             'success': False,
             'message': '',
@@ -154,7 +154,7 @@ class UserService:
                     admin_username,
                     'delete_user',
                     audit_details,
-                    metadata.get('server_assignment')
+                    ip_address
                 )
                 
                 # Create comprehensive success message
@@ -306,7 +306,7 @@ class UserService:
             self.db.update_user(user_id, {
                 'is_approved': is_approved,
                 'redirect_url': redirect_url,
-                'metadata': json.dumps(metadata)
+                'metadata': metadata
             })
 
             # Prepare audit details
@@ -369,7 +369,7 @@ class UserService:
                 container_api_url,
                 json=container_data,
                 timeout=30,
-                headers={'Authorization': f'Bearer admin_approval'}
+                headers={'Authorization': f'Bearer {os.getenv("AGENT_SHARED_SECRET", "admin_approval")}'}
             )
             
             if response.status_code == 200:
@@ -702,9 +702,9 @@ class UserService:
                 'is_admin': is_admin,
                 'is_approved': user_type in ('admin', 'qvp'),
                 'user_type': user_type,
-                'metadata': json.dumps(metadata)
+                'metadata': metadata
             }
-            
+
             # Set redirect URL only for regular users with container assignment
             if needs_container and create_data['is_approved'] and server_assignment:
                 create_data['redirect_url'] = f"http://{server_assignment}:{self.agent_port}"

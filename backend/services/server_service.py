@@ -36,7 +36,7 @@ class ServerService:
         agents_list = self.agent_repo.get_agent_ips()
 
         # Query all agents concurrently (this is the optimization!)
-        servers_resources = self.agent_service.query_available_agents(agents_list, self.agent_port)
+        servers_resources = self.agent_service.query_available_agents(agents_list)
 
         # Process the data
         servers_data = []

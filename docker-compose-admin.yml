@@ -97,8 +97,8 @@ services:
   # Frontend nginx serving the React SPA
   frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.frontend
+      context: ./frontend
+      dockerfile: Dockerfile
     container_name: gpu-dash-frontend
     ports:
       - "${FRONTEND_PORT:-9000}:80"

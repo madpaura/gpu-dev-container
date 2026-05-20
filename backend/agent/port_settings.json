@@ -1,6 +1,6 @@
 {
   "port_range": {
-    "start": 9000,
+    "start": 10000,
     "end": 65535,
     "default_range_size": 10
   },

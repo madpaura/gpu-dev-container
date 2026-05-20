@@ -2,13 +2,13 @@ import psutil
 import docker
 from docker.errors import DockerException
 from loguru import logger
-import toml
 import os
 from flask import jsonify, request
 import schedule
 import time
 import socket
 import requests
+import threading
 import os, sys
 from loguru import logger
 from dotenv import load_dotenv
@@ -18,7 +18,7 @@ import json
 import dateutil.parser
 from datetime import datetime
 
-load_dotenv(".env", override=True)
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'), override=True)
 manager_ip = os.getenv("MGMT_SERVER_IP")
 manager_port = int(os.getenv("MGMT_SERVER_PORT"))
 url = f"http://{manager_ip}:{manager_port}"
@@ -84,12 +84,73 @@ def unregister_agent(url, agent):
     except Exception as e:
         logger.error(f"Error unregistering agent: {e}")
 
+HEARTBEAT_INTERVAL = 30   # seconds between heartbeats
+HEARTBEAT_RETRIES = 3     # attempts per heartbeat
+REGISTER_MAX_RETRIES = 10  # attempts on startup
+
+
+def _send_heartbeat(agent_ip: str) -> bool:
+    for attempt in range(HEARTBEAT_RETRIES):
+        try:
+            response = requests.post(
+                f"{url}/api/agent/heartbeat",
+                json={"agent_ip": agent_ip},
+                timeout=5,
+            )
+            if response.status_code == 200:
+                return True
+            logger.warning(f"Heartbeat rejected: HTTP {response.status_code}")
+        except requests.exceptions.ConnectionError:
+            logger.warning(f"Heartbeat: manager unreachable (attempt {attempt + 1}/{HEARTBEAT_RETRIES})")
+        except requests.exceptions.Timeout:
+            logger.warning(f"Heartbeat: timeout (attempt {attempt + 1}/{HEARTBEAT_RETRIES})")
+        except Exception as e:
+            logger.error(f"Heartbeat error: {e}")
+        if attempt < HEARTBEAT_RETRIES - 1:
+            time.sleep(2 ** attempt)  # 1s, 2s backoff
+    return False
+
+
+def _heartbeat_loop(agent_ip: str):
+    while True:
+        time.sleep(HEARTBEAT_INTERVAL)
+        _send_heartbeat(agent_ip)
+
+
 def register_agent_with_manager():
-    localip, publicip = get_machine_ip()
-    register_agent(url, localip)
+    localip, _ = get_machine_ip()
+    for attempt in range(REGISTER_MAX_RETRIES):
+        try:
+            response = requests.post(
+                f"{url}/api/register_agent",
+                json={"agent_ip": localip},
+                timeout=5,
+            )
+            if response.status_code == 200:
+                logger.info(f"Registered with manager at {url}")
+                break
+            logger.warning(f"Registration rejected: HTTP {response.status_code}")
+        except requests.exceptions.ConnectionError:
+            logger.warning(f"Cannot reach manager at {url} (attempt {attempt + 1}/{REGISTER_MAX_RETRIES})")
+        except requests.exceptions.Timeout:
+            logger.warning(f"Registration timeout (attempt {attempt + 1}/{REGISTER_MAX_RETRIES})")
+        except Exception as e:
+            logger.error(f"Registration error: {e}")
+
+        if attempt < REGISTER_MAX_RETRIES - 1:
+            wait = min(30, 2 ** attempt)
+            logger.info(f"Retrying registration in {wait}s...")
+            time.sleep(wait)
+    else:
+        logger.error(f"Failed to register after {REGISTER_MAX_RETRIES} attempts; running unregistered")
+
+    # Start heartbeat regardless — it will re-register via update_heartbeat if manager recovers
+    t = threading.Thread(target=_heartbeat_loop, args=(localip,), daemon=True, name="agent-heartbeat")
+    t.start()
+
 
 def on_exit():
-    localip, publicip = get_machine_ip()
+    localip, _ = get_machine_ip()
     unregister_agent(url, localip)
 
 atexit.register(on_exit)

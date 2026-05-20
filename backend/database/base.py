@@ -1,16 +1,43 @@
 """Database manager for user authentication system."""
 
-import mysql.connector
-from mysql.connector import pooling
+import psycopg2
+import psycopg2.pool
+import psycopg2.extras
 import logging
 import os
 from typing import Optional, Dict, Any
 from .config import DatabaseConfig
 
 
+class _PooledConnection:
+    """Wraps a psycopg2 connection so that close() returns it to the pool."""
+
+    def __init__(self, conn, pool):
+        self._conn = conn
+        self._pool = pool
+
+    def cursor(self, dictionary=False):
+        if dictionary:
+            return self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        return self._conn.cursor()
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._pool.putconn(self._conn)
+
+    # Delegate any other attribute lookups to the real connection
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
 class DatabaseManager:
     """Singleton database manager with connection pooling."""
-    
+
     _instance = None
     _pool = None
 
@@ -23,266 +50,46 @@ class DatabaseManager:
 
     @classmethod
     def _setup_connection_pool(cls):
-        """Set up MySQL connection pool."""
+        """Set up PostgreSQL connection pool."""
         if cls._pool is None:
             db_config = DatabaseConfig()
-            print(f"Setting up database connection pool: {db_config.get_config()}")
-            cls._pool = mysql.connector.pooling.MySQLConnectionPool(**db_config.get_config())
+            cfg = db_config.get_config()
+            print(f"Setting up database connection pool: {cfg}")
+            max_conn = int(os.getenv('DB_POOL_MAX', 20))
+            cls._pool = psycopg2.pool.ThreadedConnectionPool(
+                minconn=2,
+                maxconn=max_conn,
+                host=cfg['host'],
+                database=cfg['database'],
+                user=cfg['user'],
+                password=cfg['password'],
+                port=cfg['port'],
+            )
 
     def get_connection(self):
-        """Get a connection from the pool."""
-        return self._pool.get_connection()
+        """Get a connection from the pool, retrying briefly if exhausted."""
+        import time
+        for attempt in range(10):
+            try:
+                conn = self._pool.getconn()
+                return _PooledConnection(conn, self._pool)
+            except psycopg2.pool.PoolError:
+                if attempt == 9:
+                    raise
+                time.sleep(0.1)
+        raise psycopg2.pool.PoolError("connection pool exhausted")
 
     def initialize_database(self):
-        """Create necessary tables if they don't exist."""
-        create_tables_query = """
-        CREATE TABLE IF NOT EXISTS users (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            username VARCHAR(50) UNIQUE NOT NULL,
-            password VARCHAR(256) NOT NULL,
-            email VARCHAR(100) UNIQUE NOT NULL,
-            is_admin BOOLEAN DEFAULT FALSE,
-            is_approved BOOLEAN DEFAULT FALSE,
-            user_type ENUM('regular', 'qvp', 'admin') DEFAULT 'regular',
-            status ENUM('active', 'inactive', 'suspended', 'system') DEFAULT 'active',
-            redirect_url VARCHAR(255),
-            metadata JSON,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_login TIMESTAMP NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS user_sessions (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT NOT NULL,
-            session_token VARCHAR(255) UNIQUE NOT NULL,
-            expires_at TIMESTAMP NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS audit_log (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT NOT NULL,
-            action_type VARCHAR(100) NOT NULL,
-            action_details JSON,
-            ip_address VARCHAR(45),
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS user_access_logs (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT,
-            session_token VARCHAR(255),
-            ip_address VARCHAR(45) NOT NULL,
-            user_agent TEXT,
-            endpoint VARCHAR(255),
-            method VARCHAR(10),
-            status_code INT,
-            access_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            session_start TIMESTAMP,
-            session_end TIMESTAMP,
-            duration_seconds INT,
-            bytes_sent BIGINT DEFAULT 0,
-            bytes_received BIGINT DEFAULT 0,
-            INDEX idx_user_id (user_id),
-            INDEX idx_ip_address (ip_address),
-            INDEX idx_access_time (access_time),
-            INDEX idx_session_token (session_token),
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS password_reset_requests (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT NOT NULL,
-            requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            status ENUM('pending', 'completed', 'rejected') DEFAULT 'pending',
-            admin_id INT,
-            completed_at TIMESTAMP NULL,
-            reason TEXT,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (admin_id) REFERENCES users(id) ON DELETE SET NULL,
-            INDEX idx_status (status),
-            INDEX idx_user_id (user_id)
-        );
-
-        CREATE TABLE IF NOT EXISTS registry_servers (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            url VARCHAR(255) NOT NULL,
-            registry_type ENUM('docker_hub', 'private', 'gcr', 'ecr', 'acr', 'harbor') DEFAULT 'private',
-            username VARCHAR(100),
-            password VARCHAR(255),
-            is_default BOOLEAN DEFAULT FALSE,
-            is_active BOOLEAN DEFAULT TRUE,
-            metadata JSON,
-            created_by INT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
-            INDEX idx_name (name),
-            INDEX idx_is_active (is_active)
-        );
-
-        CREATE TABLE IF NOT EXISTS build_projects (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            description TEXT,
-            repo_url VARCHAR(500) NOT NULL,
-            repo_branch VARCHAR(100) DEFAULT 'main',
-            dockerfile_path VARCHAR(255) DEFAULT 'Dockerfile',
-            build_context VARCHAR(255) DEFAULT '.',
-            git_pat VARCHAR(500),
-            default_registry_id INT,
-            image_name VARCHAR(255),
-            auto_increment_tag BOOLEAN DEFAULT TRUE,
-            last_tag VARCHAR(100),
-            is_active BOOLEAN DEFAULT TRUE,
-            metadata JSON,
-            created_by INT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            FOREIGN KEY (default_registry_id) REFERENCES registry_servers(id) ON DELETE SET NULL,
-            FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
-            INDEX idx_name (name),
-            INDEX idx_is_active (is_active)
-        );
-
-        CREATE TABLE IF NOT EXISTS build_history (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            project_id INT NOT NULL,
-            registry_id INT,
-            tag VARCHAR(100) NOT NULL,
-            status ENUM('pending', 'cloning', 'building', 'pushing', 'completed', 'failed') DEFAULT 'pending',
-            build_logs LONGTEXT,
-            error_message TEXT,
-            image_digest VARCHAR(255),
-            image_size BIGINT,
-            git_commit VARCHAR(100),
-            triggered_by INT,
-            started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP NULL,
-            duration_seconds INT,
-            metadata JSON,
-            FOREIGN KEY (project_id) REFERENCES build_projects(id) ON DELETE CASCADE,
-            FOREIGN KEY (registry_id) REFERENCES registry_servers(id) ON DELETE SET NULL,
-            FOREIGN KEY (triggered_by) REFERENCES users(id) ON DELETE SET NULL,
-            INDEX idx_project_id (project_id),
-            INDEX idx_status (status),
-            INDEX idx_started_at (started_at)
-        );
-
-        CREATE TABLE IF NOT EXISTS upload_servers (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            ip_address VARCHAR(255) NOT NULL,
-            port INT DEFAULT 22,
-            protocol ENUM('sftp', 'scp', 'local') DEFAULT 'sftp',
-            username VARCHAR(100),
-            password VARCHAR(255),
-            ssh_key TEXT,
-            base_path VARCHAR(500) NOT NULL,
-            version_file_path VARCHAR(500),
-            is_active BOOLEAN DEFAULT TRUE,
-            metadata JSON,
-            created_by INT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
-            INDEX idx_name (name),
-            INDEX idx_is_active (is_active)
-        );
-
-        CREATE TABLE IF NOT EXISTS guest_os_uploads (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            server_id INT NOT NULL,
-            image_name VARCHAR(100) NOT NULL,
-            file_name VARCHAR(255) NOT NULL,
-            file_path VARCHAR(500) NOT NULL,
-            file_size BIGINT,
-            file_type VARCHAR(20),
-            version VARCHAR(50) NOT NULL,
-            checksum VARCHAR(128),
-            changelog TEXT,
-            status ENUM('uploading', 'completed', 'failed') DEFAULT 'uploading',
-            error_message TEXT,
-            uploaded_by INT,
-            uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP NULL,
-            metadata JSON,
-            FOREIGN KEY (server_id) REFERENCES upload_servers(id) ON DELETE CASCADE,
-            FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE SET NULL,
-            INDEX idx_server_id (server_id),
-            INDEX idx_image_name (image_name),
-            INDEX idx_status (status)
-        );
-        """
-        
-        conn = self.get_connection()
-        try:
-            cursor = conn.cursor()
-            for statement in create_tables_query.split(';'):
-                if statement.strip():
-                    cursor.execute(statement)
-            conn.commit()
-            print("Database tables initialized successfully")
-            
-            # Run migrations for existing databases
-            self._run_migrations(cursor, conn)
-            
-            # Create default admin user if it doesn't exist
-            self._create_default_admin()
-            
-        except mysql.connector.Error as e:
-            print(f"Error initializing database: {e}")
-            raise
-        finally:
-            cursor.close()
-            conn.close()
-
-    def _run_migrations(self, cursor, conn):
-        """Run database migrations for schema updates."""
-        try:
-            # Check if user_type column exists
-            cursor.execute("""
-                SELECT COUNT(*) FROM information_schema.columns 
-                WHERE table_schema = DATABASE() 
-                AND table_name = 'users' 
-                AND column_name = 'user_type'
-            """)
-            result = cursor.fetchone()
-            
-            if result[0] == 0:
-                print("Running migration: Adding user_type column...")
-                # Add user_type column
-                cursor.execute("""
-                    ALTER TABLE users 
-                    ADD COLUMN user_type ENUM('regular', 'qvp', 'admin') DEFAULT 'regular'
-                    AFTER is_approved
-                """)
-                
-                # Migrate existing data: is_admin=true -> user_type='admin'
-                cursor.execute("""
-                    UPDATE users SET user_type = 'admin' WHERE is_admin = TRUE
-                """)
-                
-                conn.commit()
-                print("Migration completed: user_type column added and data migrated")
-        except mysql.connector.Error as e:
-            print(f"Migration warning (may be safe to ignore): {e}")
+        """Create default admin user if it doesn't exist (schema managed by Alembic)."""
+        self._create_default_admin()
 
     def _create_default_admin(self):
         """Create default admin user if it doesn't exist."""
         from .user_repository import UserRepository
         import hashlib
-        
+
         user_repo = UserRepository()
         admin_user = user_repo.get_user_by_username('admin')
-        if not os.path.exists("admin.env"):
-            raise Exception("admin.env file not found")
-
-        from dotenv import load_dotenv
-        load_dotenv("admin.env")
 
         if not admin_user:
             print("Creating default admin user...")
@@ -296,4 +103,3 @@ class DatabaseManager:
             }
             user_repo.create_user(admin_data)
             print("Default admin user created successfully")
-

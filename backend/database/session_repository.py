@@ -1,6 +1,6 @@
 """Session repository for database operations."""
 
-import mysql.connector
+import psycopg2
 from datetime import datetime
 from typing import Dict, Optional
 from .base import DatabaseManager
@@ -8,7 +8,7 @@ from .base import DatabaseManager
 
 class SessionRepository:
     """Repository class for session-related database operations."""
-    
+
     def __init__(self):
         """Initialize session repository."""
         self.db_manager = DatabaseManager()
@@ -19,14 +19,14 @@ class SessionRepository:
         INSERT INTO user_sessions (user_id, session_token, expires_at)
         VALUES (%s, %s, %s)
         """
-        
+
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(query, (user_id, session_token, expires_at))
             conn.commit()
             return True
-        except mysql.connector.Error:
+        except psycopg2.Error:
             return False
         finally:
             cursor.close()
@@ -39,13 +39,12 @@ class SessionRepository:
         JOIN user_sessions s ON u.id = s.user_id
         WHERE s.session_token = %s AND s.expires_at > CURRENT_TIMESTAMP
         """
-        
+
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor(dictionary=True)
             cursor.execute(query, (session_token,))
-            session = cursor.fetchone()
-            return session
+            return cursor.fetchone()
         finally:
             cursor.close()
             conn.close()
@@ -54,17 +53,16 @@ class SessionRepository:
         """Remove a session by token."""
         if not session_token:
             return False
-            
+
         query = "DELETE FROM user_sessions WHERE session_token = %s"
-        params = (session_token,)
-        
+
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute(query, params)
+            cursor.execute(query, (session_token,))
             conn.commit()
             return cursor.rowcount > 0
-        except mysql.connector.Error as e:
+        except psycopg2.Error as e:
             print(f"Error removing session: {e}")
             return False
         finally:

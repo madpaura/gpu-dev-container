@@ -549,9 +549,9 @@ class UserService:
                         service_urls['vscode'] = f"http://{mgmt_server}/user/{username}/vscode/"
                         service_urls['jupyter'] = f"http://{mgmt_server}/user/{username}/jupyter/"
                     elif nginx_routes.get('vscode_server') and nginx_routes.get('jupyter_server'):
-                        # Use direct server URLs
+                        # Use direct server URLs — Jupyter requires the base_url path
                         service_urls['vscode'] = f"http://{nginx_routes['vscode_server']}/"
-                        service_urls['jupyter'] = f"http://{nginx_routes['jupyter_server']}/"
+                        service_urls['jupyter'] = f"http://{nginx_routes['jupyter_server']}/user/{username}/jupyter/"
                 
                 admin_user = {
                     'id': str(user['id']),
@@ -700,7 +700,7 @@ class UserService:
                 'password': password_hash,
                 'email': email,
                 'is_admin': is_admin,
-                'is_approved': True if user_type in ('admin', 'qvp') else status.lower() == 'running',
+                'is_approved': user_type in ('admin', 'qvp'),
                 'user_type': user_type,
                 'metadata': json.dumps(metadata)
             }

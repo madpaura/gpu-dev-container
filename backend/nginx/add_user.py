@@ -111,13 +111,8 @@ class NginxUserManager:
 # {username}
 upstream {service_type}_{username} {{
     server {server_address} max_fails=3 fail_timeout=30s;
-    # Use least_conn for better load distribution
-    least_conn;
-    
-    # Enable health checks
-    zone {service_type}_{username} 64k;
     keepalive 32;
-}}"""
+}}\n"""
     
     def add_routing_rule(self, content: str, service_type: str, username: str, server_address: str) -> str:
         if service_type == "vscode":

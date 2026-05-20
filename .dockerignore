@@ -1,0 +1,22 @@
+# Docker data volumes — owned by container processes, never part of a build
+volumes/
+
+# Git and editor
+.git/
+.gitignore
+.claude/
+
+# Node artifacts
+node_modules/
+dist/
+
+# Environment files
+.env
+*.env
+
+# Docs and scripts
+*.md
+docs/
+setup.sh
+install-services.sh
+scripts/

@@ -2,7 +2,7 @@
  * Container Management API
  */
 
-const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:/api`;
+const API_BASE_URL = `${window.location.protocol}//${window.location.host}/api`;
 
 // Container Management Interfaces
 export interface ContainerInfo {

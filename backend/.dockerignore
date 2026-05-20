@@ -27,6 +27,11 @@ manager_backend.log
 *.db
 *.sqlite
 
+# Environment files — never bake secrets into image; use compose env vars
+.env
+*.env
+admin.env
+
 # Git
 .git/
 .gitignore

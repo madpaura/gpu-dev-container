@@ -193,7 +193,7 @@ export const UserDashboard: React.FC = () => {
 
     // Construct the notebook URL based on user and endpoint
     const username = user.name;
-    const notebookUrl = `${window.location.protocol}//${window.location.hostname}/user/${username}/jupyter/lab/tree/workspace/${endpointKey}/${endpointKey}-api-sample.ipynb`;
+    const notebookUrl = `${window.location.protocol}//${window.location.host}/user/${username}/jupyter/lab/tree/workspace/${endpointKey}/${endpointKey}-api-sample.ipynb`;
 
     window.open(notebookUrl, '_blank');
   };

@@ -61,6 +61,18 @@ server {
     }
 
     # Jupyter routing
+    location /user/t/jupyter/
+    {
+        proxy_pass http://192.168.68.109:10001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400;
+    }
     
     
     # Status endpoint for monitoring
@@ -103,4 +115,26 @@ server {
 
 
 
+
+
+
+
+
+
+
+
+
+
+# t
+upstream vscode_t {
+    server 192.168.68.109:10000 max_fails=3 fail_timeout=30s;
+    keepalive 32;
+}
+
+
+# t
+upstream jupyter_t {
+    server 192.168.68.109:10001 max_fails=3 fail_timeout=30s;
+    keepalive 32;
+}
 

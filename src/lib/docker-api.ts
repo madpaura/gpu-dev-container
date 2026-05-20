@@ -2,7 +2,7 @@
  * Docker images management API
  */
 
-const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}/api`;
+const API_BASE_URL = `${window.location.protocol}//${window.location.host}/api`;
 
 interface ApiResponse<T> {
   success: boolean;

@@ -33,13 +33,17 @@ class NginxService:
         try:
             logger.info(f"Adding nginx routes for user {username}")
             
-            # Check if user already exists
+            # Update routes if user already exists, otherwise add new
             if self.nginx_manager.check_user_exists(username):
-                result['message'] = f'User {username} already has nginx routes configured'
-                result['success'] = True
-                result['routes_added'] = True
+                if self.nginx_manager.update_user(username, vscode_server, jupyter_server):
+                    result['success'] = True
+                    result['routes_added'] = True
+                    result['nginx_reloaded'] = True
+                    result['message'] = f'Nginx routes updated for user {username}'
+                else:
+                    result['message'] = f'Failed to update nginx routes for user {username}'
                 return result
-            
+
             # Add user routes
             if self.nginx_manager.add_user(username, vscode_server, jupyter_server):
                 result['success'] = True
@@ -208,7 +212,7 @@ class NginxService:
         # For now, use sequential port allocation
         # In production, this should integrate with the port manager
         vscode_port = base_port
-        jupyter_port = base_port + 8  # VSCode typically uses 8080, Jupyter 8088
+        jupyter_port = base_port + 1  # port offset: code=0, jupyter=1
         
         return {
             'vscode_server': f"{server_ip}:{vscode_port}",

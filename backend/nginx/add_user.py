@@ -269,7 +269,53 @@ upstream {service_type}_{username} {{
         logger.info(f"  Jupyter: http://your-server-ip/{username}/jupyter/")
         
         return True
-    
+
+    def update_user(self, username: str, vscode_server: str, jupyter_server: str) -> bool:
+        """Update upstream server addresses for an existing user."""
+        is_valid, error_msg = self.validate_inputs(username, vscode_server, jupyter_server)
+        if not is_valid:
+            logger.error(f"Validation error: {error_msg}")
+            return False
+
+        try:
+            backup_file = f"{self.config_file}.backup"
+            shutil.copy2(self.config_file, backup_file)
+
+            with open(self.config_file, 'r') as f:
+                content = f.read()
+
+            # Replace upstream server lines for vscode and jupyter
+            content = re.sub(
+                rf'(upstream vscode_{re.escape(username)}\s*\{{[^}}]*?server\s+)\S+',
+                rf'\g<1>{vscode_server}',
+                content,
+            )
+            content = re.sub(
+                rf'(upstream jupyter_{re.escape(username)}\s*\{{[^}}]*?server\s+)\S+',
+                rf'\g<1>{jupyter_server}',
+                content,
+            )
+            # Replace direct proxy_pass in jupyter location block
+            content = re.sub(
+                rf'(location /user/{re.escape(username)}/jupyter/[^{{]*\{{[^}}]*?proxy_pass\s+http://)\S+',
+                rf'\g<1>{jupyter_server};',
+                content,
+                flags=re.DOTALL,
+            )
+
+            with open(self.config_file, 'w') as f:
+                f.write(content)
+
+            if not self.reload_nginx():
+                logger.error("Failed to reload nginx after update.")
+                return False
+
+            logger.info(f"Updated nginx routes for {username}: vscode={vscode_server} jupyter={jupyter_server}")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating nginx routes for {username}: {e}")
+            return False
+
     def remove_user(self, username: str) -> bool:
         logger.info(f"Removing user {username} from configuration")
         

@@ -891,6 +891,17 @@ def init_backend_routes(app):
                     logger.info(f"Started existing container {container_name}")
                 except Exception as e:
                     logger.warning(f"Could not start existing container {container_name}: {e}")
+            # Look up allocated ports so the caller can configure nginx correctly
+            existing_ports = PortManager().get_allocated_ports(user)
+            if existing_ports:
+                ex_start = int(existing_ports["start_port"])
+                port_map = {
+                    "code": ex_start + PORT_OFFSETS['code'],
+                    "jupyter": ex_start + PORT_OFFSETS['jupyter'],
+                    "ssh": ex_start + PORT_OFFSETS['ssh'],
+                }
+            else:
+                port_map = {}
             return jsonify(
                 {
                     "success": True,
@@ -898,6 +909,7 @@ def init_backend_routes(app):
                         "id": existing_container.id,
                         "name": existing_container.name,
                         "status": existing_container.status,
+                        "port_map": port_map,
                     },
                     "message": "Container already exists and is being reused"
                 }

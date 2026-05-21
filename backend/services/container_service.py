@@ -1,6 +1,7 @@
 from typing import Dict, List, Optional, Any
 import requests
 import time
+import threading
 from loguru import logger
 from models.container import ContainerInfo, ContainerListResponse, ContainerActionResponse
 from services.agent_service import AgentService
@@ -12,6 +13,7 @@ class ContainerService:
         self.agent_service = agent_service
         self._container_cache = {}
         self._cache_duration = 30  # Cache for 30 seconds
+        self._cache_lock = threading.Lock()
     
     def get_containers_from_server(self, server_ip: str, search_term: Optional[str] = None) -> ContainerListResponse:
         """Get detailed container information from a specific server"""
@@ -19,26 +21,32 @@ class ContainerService:
             # Check cache first
             cache_key = f"{server_ip}_containers"
             current_time = time.time()
-            
-            if (cache_key in self._container_cache and 
-                current_time - self._container_cache[cache_key]['timestamp'] < self._cache_duration):
-                cached_data = self._container_cache[cache_key]['data']
-                logger.debug(f"Using cached container data for {server_ip}")
-            else:
-                # Fetch fresh data from agent
+
+            with self._cache_lock:
+                cached_entry = self._container_cache.get(cache_key)
+                if (cached_entry is not None and
+                        current_time - cached_entry['timestamp'] < self._cache_duration):
+                    cached_data = cached_entry['data']
+                    logger.debug(f"Using cached container data for {server_ip}")
+                else:
+                    cached_data = None
+
+            if cached_data is None:
+                # Fetch fresh data from agent (outside lock)
                 logger.debug(f"Fetching container data from agent {server_ip}")
                 response = requests.get(
                     f"http://{server_ip}:{self.agent_service.agent_port}/get_containers",
                     timeout=100
                 )
-                
+
                 if response.status_code == 200:
                     cached_data = response.json()
-                    # Update cache
-                    self._container_cache[cache_key] = {
-                        'data': cached_data,
-                        'timestamp': current_time
-                    }
+                    # Update cache atomically
+                    with self._cache_lock:
+                        self._container_cache[cache_key] = {
+                            'data': cached_data,
+                            'timestamp': current_time
+                        }
                 else:
                     logger.error(f"Failed to get containers from {server_ip}: HTTP {response.status_code}")
                     return ContainerListResponse(
@@ -200,8 +208,8 @@ class ContainerService:
                 
                 # Clear cache to force refresh
                 cache_key = f"{server_ip}_containers"
-                if cache_key in self._container_cache:
-                    del self._container_cache[cache_key]
+                with self._cache_lock:
+                    self._container_cache.pop(cache_key, None)
                 
                 return ContainerActionResponse(
                     success=True,
@@ -269,5 +277,6 @@ class ContainerService:
     
     def clear_cache(self):
         """Clear the container cache"""
-        self._container_cache.clear()
+        with self._cache_lock:
+            self._container_cache.clear()
         logger.debug("Container cache cleared")

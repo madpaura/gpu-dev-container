@@ -28,7 +28,12 @@ async function fetchApi<T>(
     });
     
     const data = await response.json();
-    
+
+    if (response.status === 401 || response.status === 403) {
+      window.dispatchEvent(new CustomEvent('auth:expired'));
+      return { success: false, error: 'session expired' };
+    }
+
     if (!response.ok) {
       return {
         success: false,

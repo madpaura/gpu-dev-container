@@ -33,7 +33,7 @@ services:
       DB_NAME: ${POSTGRES_DB:-gpu_dash}
 
       # Server configuration
-      MGMT_SERVER_PORT: ${BACKEND_PORT:-8500}
+      MGMT_SERVER_PORT: 8500
       MGMT_SERVER_IP: 0.0.0.0
 
       # Agent configuration

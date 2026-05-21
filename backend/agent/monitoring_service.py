@@ -25,10 +25,14 @@ url = f"http://{manager_ip}:{manager_port}"
 
 def get_machine_ip():
     """
-    Get both local and public IP addresses of the machine.
-    Returns a tuple of (local_ip, public_ip)
+    Get the IP address of the machine, with env var override support.
+    Returns a tuple of (local_ip, public_ip). Set AGENT_PUBLIC_IP to override
+    the auto-detected IP (useful when running inside a Docker bridge network).
     """
-    # Get local IP
+    override = os.environ.get('AGENT_PUBLIC_IP')
+    if override:
+        return override, override
+
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(('8.8.8.8', 80))
@@ -37,16 +41,7 @@ def get_machine_ip():
     except Exception as e:
         local_ip = "Could not determine local IP: " + str(e)
 
-    # Get public IP
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        public_ip = s.getsockname()[0]
-        s.close()
-    except Exception as e:
-        public_ip = "Could not determine public IP: " + str(e)
-
-    return local_ip, public_ip
+    return local_ip, local_ip
 
 def register_agent(url, agent):
     try:
@@ -119,6 +114,7 @@ def _heartbeat_loop(agent_ip: str):
 
 def register_agent_with_manager():
     localip, _ = get_machine_ip()
+    registered = False
     for attempt in range(REGISTER_MAX_RETRIES):
         try:
             response = requests.post(
@@ -128,6 +124,7 @@ def register_agent_with_manager():
             )
             if response.status_code == 200:
                 logger.info(f"Registered with manager at {url}")
+                registered = True
                 break
             logger.warning(f"Registration rejected: HTTP {response.status_code}")
         except requests.exceptions.ConnectionError:
@@ -141,10 +138,11 @@ def register_agent_with_manager():
             wait = min(30, 2 ** attempt)
             logger.info(f"Retrying registration in {wait}s...")
             time.sleep(wait)
-    else:
-        logger.error(f"Failed to register after {REGISTER_MAX_RETRIES} attempts; running unregistered")
 
-    # Start heartbeat regardless — it will re-register via update_heartbeat if manager recovers
+    if not registered:
+        logger.error(f"Failed to register after {REGISTER_MAX_RETRIES} attempts; running unregistered")
+        return
+
     t = threading.Thread(target=_heartbeat_loop, args=(localip,), daemon=True, name="agent-heartbeat")
     t.start()
 

@@ -1,5 +1,6 @@
 import time
 import os
+import threading
 from typing import List, Dict, Any, Optional
 from loguru import logger
 
@@ -21,93 +22,106 @@ class ServerService:
             'timestamp': 0,
             'cache_duration': 30
         }
+        self._cache_lock = threading.Lock()
+        self._refresh_in_progress = threading.Lock()
     
     def get_cached_server_data(self) -> Dict[str, Any]:
         current_time = time.time()
-        
-        # Check if cache is valid
-        if (self.cache['data'] is not None and 
-            current_time - self.cache['timestamp'] < self.cache['cache_duration']):
-            logger.debug("Using cached server data")
-            return self.cache['data']
-        
-        # Cache is expired or empty, fetch new data
-        logger.info("Fetching fresh server data")
-        agents_list = self.agent_repo.get_agent_ips()
 
-        # Query all agents concurrently (this is the optimization!)
-        servers_resources = self.agent_service.query_available_agents(agents_list)
+        # Fast path: check under lock if cache is still fresh
+        with self._cache_lock:
+            if (self.cache['data'] is not None and
+                    current_time - self.cache['timestamp'] < self.cache['cache_duration']):
+                logger.debug("Using cached server data")
+                return self.cache['data']
 
-        # Process the data
-        servers_data = []
-        stats_data = {
-            'totalServers': len(agents_list),
-            'onlineServers': 0,
-            'offlineServers': 0,
-            'maintenanceServers': 0,
-            'totalServersChange': 0,
-            'onlineServersChange': 0,
-            'offlineServersChange': 0,
-            'maintenanceServersChange': 0
-        }
-        
-        # Create a map of successful responses
-        resource_map = {res['server_id']: res for res in servers_resources}
-        
-        for agent_ip in agents_list:
-            if agent_ip in resource_map:
-                resource_data = resource_map[agent_ip]
-                status = 'online'
-                stats_data['onlineServers'] += 1
-                
-                # Calculate usage percentages
-                memory_total = resource_data.get('total_memory', 1)
-                memory_used = resource_data.get('host_memory_used', 0)
-                memory_usage = (memory_used / memory_total * 100) if memory_total > 0 else 0
-                
-                disk_total = resource_data.get('total_disk', 1)
-                disk_used = resource_data.get('used_disk', 0)
-                disk_usage = (disk_used / disk_total * 100) if disk_total > 0 else 0
-                
-                # Create server info dict with all resource data
-                server_info = {
-                    'id': f'server-{agent_ip.replace(".", "-")}',
-                    'ip': agent_ip,
-                    'status': status,
-                    'cpu': round(resource_data.get('host_cpu_used', 0), 1),
-                    'memory': round(memory_usage, 1),
-                    'disk': round(disk_usage, 1),
-                    'uptime': resource_data.get('uptime', 'Unknown'),
-                    'containers': resource_data.get('running_containers', 0),
-                    'lastSeen': current_time
-                }
-            else:
-                # Server is offline
-                stats_data['offlineServers'] += 1
-                server_info = {
-                    'id': f'server-{agent_ip.replace(".", "-")}',
-                    'ip': agent_ip,
-                    'status': 'offline',
-                    'cpu': 0,
-                    'memory': 0,
-                    'disk': 0,
-                    'uptime': 'Offline',
-                    'containers': 0,
-                    'lastSeen': 0
-                }
-            
-            servers_data.append(server_info)
-        
-        # Cache the results
-        cached_data = {
-            'servers': servers_data,
-            'stats': stats_data
-        }
-        
-        self.cache['data'] = cached_data
-        self.cache['timestamp'] = current_time
-        
-        return cached_data
+        # Slow path: acquire the refresh lock so only one thread fetches
+        with self._refresh_in_progress:
+            # Re-check under cache lock now that we hold the refresh lock
+            current_time = time.time()
+            with self._cache_lock:
+                if (self.cache['data'] is not None and
+                        current_time - self.cache['timestamp'] < self.cache['cache_duration']):
+                    logger.debug("Using cached server data (post-lock recheck)")
+                    return self.cache['data']
+
+            # Fetch fresh data (blocking I/O outside cache lock)
+            logger.info("Fetching fresh server data")
+            agents_list = self.agent_repo.get_agent_ips()
+
+            # Query all agents concurrently (this is the optimization!)
+            servers_resources = self.agent_service.query_available_agents(agents_list)
+
+            # Process the data
+            servers_data = []
+            stats_data = {
+                'totalServers': len(agents_list),
+                'onlineServers': 0,
+                'offlineServers': 0,
+                'maintenanceServers': 0,
+                'totalServersChange': 0,
+                'onlineServersChange': 0,
+                'offlineServersChange': 0,
+                'maintenanceServersChange': 0
+            }
+
+            # Create a map of successful responses
+            resource_map = {res['server_id']: res for res in servers_resources}
+
+            for agent_ip in agents_list:
+                if agent_ip in resource_map:
+                    resource_data = resource_map[agent_ip]
+                    status = 'online'
+                    stats_data['onlineServers'] += 1
+
+                    # Calculate usage percentages
+                    memory_total = resource_data.get('total_memory', 1)
+                    memory_used = resource_data.get('host_memory_used', 0)
+                    memory_usage = (memory_used / memory_total * 100) if memory_total > 0 else 0
+
+                    disk_total = resource_data.get('total_disk', 1)
+                    disk_used = resource_data.get('used_disk', 0)
+                    disk_usage = (disk_used / disk_total * 100) if disk_total > 0 else 0
+
+                    # Create server info dict with all resource data
+                    server_info = {
+                        'id': f'server-{agent_ip.replace(".", "-")}',
+                        'ip': agent_ip,
+                        'status': status,
+                        'cpu': round(resource_data.get('host_cpu_used', 0), 1),
+                        'memory': round(memory_usage, 1),
+                        'disk': round(disk_usage, 1),
+                        'uptime': resource_data.get('uptime', 'Unknown'),
+                        'containers': resource_data.get('running_containers', 0),
+                        'lastSeen': current_time
+                    }
+                else:
+                    # Server is offline
+                    stats_data['offlineServers'] += 1
+                    server_info = {
+                        'id': f'server-{agent_ip.replace(".", "-")}',
+                        'ip': agent_ip,
+                        'status': 'offline',
+                        'cpu': 0,
+                        'memory': 0,
+                        'disk': 0,
+                        'uptime': 'Offline',
+                        'containers': 0,
+                        'lastSeen': 0
+                    }
+
+                servers_data.append(server_info)
+
+            # Update cache atomically under the lock
+            cached_data = {
+                'servers': servers_data,
+                'stats': stats_data
+            }
+            with self._cache_lock:
+                self.cache['data'] = cached_data
+                self.cache['timestamp'] = current_time
+
+            return cached_data
     
     def get_server_resources(self) -> List[Dict[str, Any]]:
         try:
@@ -175,10 +189,11 @@ class ServerService:
 
             if not self.agent_repo.delete_agent(server_ip):
                 return {'success': False, 'error': 'Failed to remove agent from database'}
-            
+
             # Clear cache to force refresh
-            self.cache['data'] = None
-            self.cache['timestamp'] = 0
+            with self._cache_lock:
+                self.cache['data'] = None
+                self.cache['timestamp'] = 0
             
             # Log the deletion
             self.db.log_audit_event(
@@ -236,10 +251,11 @@ class ServerService:
 
             if not self.agent_repo.register_agent(ip, name=name):
                 return {'success': False, 'error': 'Failed to save server configuration'}
-            
+
             # Invalidate cache so fresh data is fetched
-            self.cache['data'] = None
-            self.cache['timestamp'] = 0
+            with self._cache_lock:
+                self.cache['data'] = None
+                self.cache['timestamp'] = 0
             
             # Log the action
             self.db.log_audit_event(
@@ -377,5 +393,6 @@ class ServerService:
     
     def invalidate_cache(self):
         """Invalidate the server data cache."""
-        self.cache['data'] = None
-        self.cache['timestamp'] = 0
+        with self._cache_lock:
+            self.cache['data'] = None
+            self.cache['timestamp'] = 0

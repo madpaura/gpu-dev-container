@@ -5,6 +5,7 @@ import psycopg2.pool
 import psycopg2.extras
 import logging
 import os
+import threading
 from typing import Optional, Dict, Any
 from .config import DatabaseConfig
 
@@ -44,12 +45,15 @@ class DatabaseManager:
 
     _instance = None
     _pool = None
+    _lock = threading.Lock()
 
     def __new__(cls):
         """Ensure singleton instance."""
         if cls._instance is None:
-            cls._instance = super(DatabaseManager, cls).__new__(cls)
-            cls._setup_connection_pool()
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super(DatabaseManager, cls).__new__(cls)
+                    cls._setup_connection_pool()
         return cls._instance
 
     @classmethod
@@ -92,6 +96,12 @@ class DatabaseManager:
         from .user_repository import UserRepository
         from utils.helpers import hash_password
 
+        admin_password = os.getenv('ADMIN_PASSWORD')
+        if not admin_password:
+            raise RuntimeError("ADMIN_PASSWORD environment variable is not set")
+        if admin_password == 'changeme':
+            raise RuntimeError("ADMIN_PASSWORD must not be 'changeme' — set a secure password")
+
         user_repo = UserRepository()
         admin_user = user_repo.get_user_by_username('admin')
 
@@ -99,7 +109,7 @@ class DatabaseManager:
             print("Creating default admin user...")
             admin_data = {
                 'username': os.getenv('ADMIN_USERNAME'),
-                'password': hash_password(os.getenv('ADMIN_PASSWORD')),
+                'password': hash_password(admin_password),
                 'email': os.getenv('ADMIN_EMAIL'),
                 'is_admin': True,
                 'is_approved': True,

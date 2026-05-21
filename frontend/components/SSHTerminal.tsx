@@ -69,6 +69,15 @@ export const SSHTerminal: React.FC<SSHTerminalProps> = ({
     }
   }, [open, token]);
 
+  // Tear down server-side session on unmount
+  useEffect(() => {
+    return () => {
+      if (sessionId && token) {
+        serverApi.sshDisconnect(sessionId, token).catch(() => {});
+      }
+    };
+  }, [sessionId, token]);
+
   // Poll for output when connected
   useEffect(() => {
     if (connected && sessionId && token) {

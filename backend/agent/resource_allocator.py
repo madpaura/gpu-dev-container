@@ -8,8 +8,8 @@ from loguru import logger
 
 class PortManager:
     def __init__(self, config_file="port_allocations.json", settings_file="port_settings.json"):
-        self.config_file = config_file
-        self.settings_file = settings_file
+        self.config_file = os.path.abspath(config_file)
+        self.settings_file = os.path.abspath(settings_file)
         self._initialize_files()
 
     def _initialize_files(self):
@@ -64,12 +64,13 @@ class PortManager:
         if range_size is None:
             range_size = self._get_settings().get("default_range_size", 10)
 
-        # Acquire lock for the full read-find-write cycle
-        lock_path = self.config_file + ".lock"
-        with open(lock_path, 'w') as lock_f:
-            fcntl.flock(lock_f, fcntl.LOCK_EX)
+        # Open (or create) and exclusively lock the data file for the full read-modify-write
+        with open(self.config_file, 'a+') as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
             try:
-                data = self._read_json(self.config_file)
+                f.seek(0)
+                content = f.read()
+                data = json.loads(content) if content.strip() else {"allocations": {}}
                 allocations = data.get("allocations", {})
 
                 if user_id in allocations:
@@ -91,43 +92,60 @@ class PortManager:
                 }
                 data["allocations"] = allocations
 
-                with open(self.config_file, 'w') as f:
-                    json.dump(data, f, indent=2)
-
-                logger.info(f"Port range allocated for user {user_id}: [{start_port}-{end_port}]")
-                return {"start_port": start_port, "end_port": end_port}
+                f.seek(0)
+                f.truncate()
+                json.dump(data, f, indent=2)
             finally:
-                fcntl.flock(lock_f, fcntl.LOCK_UN)
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+        logger.info(f"Port range allocated for user {user_id}: [{start_port}-{end_port}]")
+        return {"start_port": start_port, "end_port": end_port}
 
     def deallocate_ports(self, user_id: str) -> bool:
         """Deallocate a user's port range. Returns True on success or if no ports were allocated."""
-        lock_path = self.config_file + ".lock"
-        with open(lock_path, 'w') as lock_f:
-            fcntl.flock(lock_f, fcntl.LOCK_EX)
-            try:
-                data = self._read_json(self.config_file)
-                allocations = data.get("allocations", {})
+        try:
+            with open(self.config_file, 'a+') as f:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                try:
+                    f.seek(0)
+                    content = f.read()
+                    data = json.loads(content) if content.strip() else {"allocations": {}}
+                    allocations = data.get("allocations", {})
 
-                if user_id not in allocations:
-                    logger.info(f"No ports allocated for user {user_id}, nothing to deallocate")
-                    return True
+                    if user_id not in allocations:
+                        logger.info(f"No ports allocated for user {user_id}, nothing to deallocate")
+                        return True
 
-                entry = allocations.pop(user_id)
-                data["allocations"] = allocations
+                    entry = allocations.pop(user_id)
+                    data["allocations"] = allocations
 
-                with open(self.config_file, 'w') as f:
+                    f.seek(0)
+                    f.truncate()
                     json.dump(data, f, indent=2)
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
-                logger.success(f"Port range deallocated for user {user_id}: [{entry['start_port']}-{entry['end_port']}]")
-                return True
-            except Exception as e:
-                logger.error(f"Error deallocating ports for user {user_id}: {e}")
-                return False
-            finally:
-                fcntl.flock(lock_f, fcntl.LOCK_UN)
+            logger.success(f"Port range deallocated for user {user_id}: [{entry['start_port']}-{entry['end_port']}]")
+            return True
+        except Exception as e:
+            logger.error(f"Error deallocating ports for user {user_id}: {e}")
+            return False
+
+    def _read_json_shared(self, file_path: str) -> Dict:
+        """Read JSON with a shared (read) lock to prevent reading mid-write."""
+        try:
+            with open(file_path, 'r') as f:
+                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                try:
+                    return json.load(f)
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            logger.error(f"Error reading {file_path}: {e}")
+            return {}
 
     def get_allocated_ports(self, user_id: str) -> Optional[Dict[str, int]]:
-        data = self._read_json(self.config_file)
+        data = self._read_json_shared(self.config_file)
         entry = data.get("allocations", {}).get(user_id)
         if not entry:
             return None
@@ -154,10 +172,10 @@ class PortManager:
         return None
 
     def get_all_allocations(self) -> Dict[str, Dict]:
-        return self._read_json(self.config_file).get("allocations", {})
+        return self._read_json_shared(self.config_file).get("allocations", {})
 
     def get_allocation_summary(self) -> Dict:
-        data = self._read_json(self.config_file)
+        data = self._read_json_shared(self.config_file)
         allocations = data.get("allocations", {})
         settings = self._get_settings()
 

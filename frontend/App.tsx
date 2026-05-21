@@ -27,7 +27,9 @@ const canAccessAdminRoutes = (role?: string): boolean => {
 
 // Helper to get redirect path based on role
 const getRedirectPath = (role?: string): string => {
-  return canAccessAdminRoutes(role) ? '/admin' : '/user';
+  if (role === 'admin' || role === 'qvp') return '/admin';
+  if (role === 'user') return '/user';
+  return '/login'; // pending, developer, undefined, etc.
 };
 
 const ProtectedRoute: React.FC<{ 

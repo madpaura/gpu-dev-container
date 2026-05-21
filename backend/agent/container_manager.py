@@ -16,6 +16,9 @@ from dotenv import load_dotenv
 
 from resource_allocator import PortManager
 
+# Port offsets relative to a user's allocated start_port
+PORT_OFFSETS = {'code': 0, 'jupyter': 1, 'ssh': 2, 'vnc': 3, 'coder': 4}
+
 # Configure logger
 logger.add("agent_service.log", rotation="500 MB", retention="10 days", level="INFO")
 
@@ -639,9 +642,9 @@ class DockerHelper:
         
         # Setup port mappings
         ports = {}
-        ports[os.getenv("CODE_PORT", 8080)] = start_port
-        ports[os.getenv("JUPYTER_PORT", 8888)] = start_port + 1
-        ports[os.getenv("GUEST_OS_SSH_PORT", 22)] = start_port + 2
+        ports[os.getenv("CODE_PORT", 8080)] = start_port + PORT_OFFSETS['code']
+        ports[os.getenv("JUPYTER_PORT", 8888)] = start_port + PORT_OFFSETS['jupyter']
+        ports[os.getenv("GUEST_OS_SSH_PORT", 22)] = start_port + PORT_OFFSETS['ssh']
         
         return {
             'env': env,
@@ -1077,26 +1080,25 @@ def init_backend_routes(app):
         port_manager = PortManager()
         
         # Extract username from container_id (format: code-server-{username}-{hash})
-        # e.g., code-server-u1-bb82030dbc2bcaba -> u1
+        # e.g., code-server-john-doe-bb82030dbc2bcaba -> john-doe
         username = container_id
         if container_id.startswith('code-server-'):
-            parts = container_id.replace('code-server-', '').split('-')
-            if parts:
-                username = parts[0]
-        
+            parts = container_id.split('-')
+            if len(parts) > 3:
+                username = '-'.join(parts[2:-1])
+
         new_ports = port_manager.get_allocated_ports(username)
         if not new_ports:
             return jsonify({"success": False, "error": f"No ports allocated for {username}"}), 404
-            
+
         start_port = int(new_ports["start_port"])
-        
+
         port_info = {
-            "code_port": start_port,
-            "ssh_port": start_port + 1,
-            "spice_port": start_port + 2,
-            "fm_ui_port": start_port + 3,
-            "fm_port": start_port + 4,
-            "jupyter_port": start_port + 8  # Jupyter is typically at offset 8
+            "code_port": start_port + PORT_OFFSETS['code'],
+            "jupyter_port": start_port + PORT_OFFSETS['jupyter'],
+            "ssh_port": start_port + PORT_OFFSETS['ssh'],
+            "vnc_port": start_port + PORT_OFFSETS['vnc'],
+            "coder_port": start_port + PORT_OFFSETS['coder'],
         }
         
         return jsonify({"success": True, "port_info": port_info})

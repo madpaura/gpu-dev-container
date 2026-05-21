@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -104,6 +104,10 @@ export const AdminDockerBuilder: React.FC = () => {
   const [editorBuildLogs, setEditorBuildLogs] = useState('');
   const [commitMessage, setCommitMessage] = useState('');
 
+  // Refs to hold poll/stop timer handles so they can be cleared on unmount
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Build logs dialog state
   const [logsDialogOpen, setLogsDialogOpen] = useState(false);
   const [viewingBuildLogs, setViewingBuildLogs] = useState('');
@@ -141,6 +145,14 @@ export const AdminDockerBuilder: React.FC = () => {
     tag: '',
     registry_id: '',
   });
+
+  // Clean up poll/stop timers on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      if (stopRef.current) clearTimeout(stopRef.current);
+    };
+  }, []);
 
   // ==================== Data Fetching ====================
 
@@ -524,8 +536,12 @@ CMD ["bash"]
       if (response.success && buildId) {
         setEditorBuildLogs(prev => prev + `Build started with ID: ${buildId}, tag: ${tag}\n`);
 
+        // Clear any existing timers before starting new ones
+        if (pollRef.current) clearInterval(pollRef.current);
+        if (stopRef.current) clearTimeout(stopRef.current);
+
         // Poll for build status
-        const pollInterval = setInterval(async () => {
+        pollRef.current = setInterval(async () => {
           try {
             const statusRes = await buildApi.getBuildStatus(user.token, buildId);
             if (statusRes.success && statusRes.data) {
@@ -538,12 +554,12 @@ CMD ["bash"]
               }
 
               if (build.status === 'completed') {
-                clearInterval(pollInterval);
+                if (pollRef.current) clearInterval(pollRef.current);
                 setEditorBuildStatus('success');
                 setEditorBuildLogs(prev => prev + '\n✓ Build completed successfully!\n');
                 fetchData();
               } else if (build.status === 'failed') {
-                clearInterval(pollInterval);
+                if (pollRef.current) clearInterval(pollRef.current);
                 setEditorBuildStatus('failed');
                 setEditorBuildLogs(prev => prev + `\n✗ Build failed: ${build.error_message || 'Unknown error'}\n`);
               }
@@ -554,7 +570,9 @@ CMD ["bash"]
         }, 2000);
 
         // Stop polling after 10 minutes
-        setTimeout(() => clearInterval(pollInterval), 600000);
+        stopRef.current = setTimeout(() => {
+          if (pollRef.current) clearInterval(pollRef.current);
+        }, 600000);
       } else {
         setEditorBuildStatus('failed');
         setEditorBuildLogs(prev => prev + `\n✗ Failed to start build: ${response.error}\n`);

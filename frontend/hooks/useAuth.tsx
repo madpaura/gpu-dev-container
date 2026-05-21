@@ -31,31 +31,44 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     const validateSession = async () => {
       const savedUser = localStorage.getItem('dockerManager_user');
-
-      if (savedUser) {
-        try {
-          const userData = JSON.parse(savedUser);
-
-          if (userData && userData.token) {
-            setUser(userData);
-
-            const response = await authApi.validateSession(userData.token);
-
-            if (!response.success || !response.data?.valid) {
-              setUser(null);
-            }
-          } else {
-            localStorage.removeItem('dockerManager_user');
-          }
-        } catch (error) {
-          localStorage.removeItem('dockerManager_user');
-        }
+      if (!savedUser) {
+        setIsLoading(false);
+        return;
       }
-
-      setIsLoading(false);
+      try {
+        const userData = JSON.parse(savedUser);
+        if (!userData?.token) {
+          localStorage.removeItem('dockerManager_user');
+          setIsLoading(false);
+          return;
+        }
+        const response = await authApi.validateSession(userData.token);
+        if (response.success && response.data?.valid) {
+          setUser(userData);
+        } else {
+          localStorage.removeItem('dockerManager_user');
+          setUser(null);
+        }
+      } catch {
+        localStorage.removeItem('dockerManager_user');
+        setUser(null);
+      } finally {
+        setIsLoading(false);
+      }
     };
 
     validateSession();
+  }, []);
+
+  // Listen for auth:expired events dispatched by API helpers
+  useEffect(() => {
+    const handler = () => {
+      localStorage.removeItem('dockerManager_user');
+      setUser(null);
+      window.location.href = '/login';
+    };
+    window.addEventListener('auth:expired', handler);
+    return () => window.removeEventListener('auth:expired', handler);
   }, []);
 
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {

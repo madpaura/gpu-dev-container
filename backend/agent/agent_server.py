@@ -5,6 +5,7 @@ from container_manager import init_backend_routes
 import toml
 from datetime import datetime
 import sys
+import threading
 
 import os
 from dotenv import load_dotenv
@@ -24,8 +25,6 @@ except ConfigValidationError as e:
 
 app = Flask(__name__)
 CORS(app)
-
-register_agent_with_manager()
 
 # Initialize routes from both modules
 init_stats_routes(app)
@@ -80,5 +79,5 @@ if __name__ == '__main__':
             print(f"Error loading config: {e}")
     
     print(f"Starting agent server on port {port}")
-    # Enable debug mode for auto-reload on code changes
+    threading.Thread(target=register_agent_with_manager, daemon=True, name='agent-registration').start()
     app.run(host='0.0.0.0', port=port, debug=False)

@@ -63,6 +63,7 @@ for _bp in (auth_bp, user_bp, server_bp, agent_bp, user_service_bp,
     app.register_blueprint(_bp)
 
 if __name__ == '__main__':
-    port = int(os.getenv('MGMT_SERVER_PORT', os.getenv('BACKEND_PORT', '8500')))
+    # MGMT_SERVER_PORT is always 8500 inside the container; BACKEND_PORT controls the host-side mapping only
+    port = int(os.getenv('MGMT_SERVER_PORT', '8500'))
     logger.info(f"Starting Flask application on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)

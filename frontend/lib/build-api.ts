@@ -100,7 +100,20 @@ async function apiRequest<T>(
       },
     });
 
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
+
+    if (response.status === 401 || response.status === 403) {
+      window.dispatchEvent(new CustomEvent('auth:expired'));
+      return { success: false, error: 'session expired' };
+    }
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: (data as any).error ?? (data as any).detail ?? (data as any).message ?? `HTTP ${response.status}`,
+      };
+    }
+
     return data;
   } catch (error) {
     console.error(`API request failed: ${endpoint}`, error);

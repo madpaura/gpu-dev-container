@@ -14,12 +14,12 @@ class CleanupService:
         self.db = db
     
 
-    def get_cleanup_summary(self, server_ip: str, username: str, password: str, 
+    def get_cleanup_summary(self, server_ip: str, username: str, password: str,
                           ssh_port: int = 22) -> Dict[str, Any]:
         try:
             ssh_client = paramiko.SSHClient()
             ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            
+
             ssh_client.connect(
                 hostname=server_ip,
                 port=ssh_port,
@@ -27,15 +27,16 @@ class CleanupService:
                 password=password,
                 timeout=10
             )
-            
+
             logger.info(f"Connected to {server_ip} for cleanup summary via SSH")
-            
-            containers_info = self._get_containers_info_ssh(ssh_client)
-            docker_images_info = self._get_docker_images_info_ssh(ssh_client)
-            disk_info = self._get_disk_usage_info_ssh(ssh_client)
-            
-            ssh_client.close()
-            
+
+            try:
+                containers_info = self._get_containers_info_ssh(ssh_client)
+                docker_images_info = self._get_docker_images_info_ssh(ssh_client)
+                disk_info = self._get_disk_usage_info_ssh(ssh_client)
+            finally:
+                ssh_client.close()
+
             return {
                 'success': True,
                 'server_ip': server_ip,
@@ -50,7 +51,7 @@ class CleanupService:
                     'total_disk_usage': disk_info.get('total_used_gb', 0)
                 }
             }
-            
+
         except Exception as e:
             logger.error(f"Error getting cleanup summary for {server_ip}: {e}")
             return {
@@ -178,7 +179,7 @@ class CleanupService:
             logger.info(f"Connecting to {server_ip} for cleanup operations")
             ssh_client = paramiko.SSHClient()
             ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            
+
             ssh_client.connect(
                 hostname=server_ip,
                 port=ssh_port,
@@ -186,11 +187,13 @@ class CleanupService:
                 password=password,
                 timeout=10
             )
-            
+
             logger.info(f"Executing cleanup operations on {server_ip}")
-            results = self._execute_cleanup_ssh(ssh_client, cleanup_options)
-            ssh_client.close()
-            
+            try:
+                results = self._execute_cleanup_ssh(ssh_client, cleanup_options)
+            finally:
+                ssh_client.close()
+
             self.db.log_audit_event(
                 username=admin_username,
                 action_type='server_cleanup',

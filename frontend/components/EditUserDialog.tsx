@@ -175,7 +175,7 @@ export const EditUserDialog: React.FC<EditUserDialogProps> = ({
       const selectedServerData = servers.find(s => s.id === selectedServer);
       const isAdminRole = ['QVP', 'Admin'].includes(formData.role);
       
-      onCreate?.({
+      await onCreate?.({
         name: formData.name,
         email: formData.email,
         password: formData.password,
@@ -200,7 +200,7 @@ export const EditUserDialog: React.FC<EditUserDialogProps> = ({
       const selectedServerData = servers.find(s => s.id === selectedServer);
       // Send just the IP address, not the server name with "Server" prefix
       const serverIp = selectedServerData?.ip || '127.0.0.1';
-      onApprove(user.id, serverIp, 
+      await onApprove(user.id, serverIp,
                 resourcePreset === 'custom' ? customResources : resourcePresets[resourcePreset]);
       onClose();
     } catch (error) {

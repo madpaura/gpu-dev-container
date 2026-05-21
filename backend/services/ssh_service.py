@@ -188,6 +188,7 @@ class SSHService:
         self.db = db
         self.ssh_sessions: Dict[str, SSHSession] = {}
         self.ssh_session_outputs: Dict[str, str] = {}
+        self._sessions_lock = threading.RLock()
     
     def create_ssh_connection(self, server_id: str, ssh_config: Dict[str, Any], 
                             admin_username: str, ip_address: Optional[str] = None) -> Dict[str, Any]:
@@ -209,8 +210,9 @@ class SSHService:
             )
             
             if ssh_session.connect():
-                self.ssh_sessions[session_id] = ssh_session
-                
+                with self._sessions_lock:
+                    self.ssh_sessions[session_id] = ssh_session
+
                 # Log SSH connection
                 self.db.log_audit_event(
                     username=admin_username,
@@ -239,14 +241,14 @@ class SSHService:
             logger.error(f"Error creating SSH connection: {e}")
             return {'success': False, 'error': 'Failed to create SSH connection'}
     
-    def execute_ssh_command(self, session_id: str, command: str, admin_username: str, 
+    def execute_ssh_command(self, session_id: str, command: str, admin_username: str,
                           ip_address: Optional[str] = None) -> Dict[str, Any]:
         try:
-            if session_id not in self.ssh_sessions:
-                return {'success': False, 'error': 'SSH session not found'}
-            
-            ssh_session = self.ssh_sessions[session_id]
-            
+            with self._sessions_lock:
+                if session_id not in self.ssh_sessions:
+                    return {'success': False, 'error': 'SSH session not found'}
+                ssh_session = self.ssh_sessions[session_id]
+
             if ssh_session.execute_command(command):
                 # Log command execution
                 self.db.log_audit_event(
@@ -274,85 +276,88 @@ class SSHService:
     
     def get_ssh_output(self, session_id: str) -> Dict[str, Any]:
         try:
-            if session_id not in self.ssh_sessions:
-                return {'success': False, 'error': 'SSH session not found'}
-            
-            ssh_session = self.ssh_sessions[session_id]
+            with self._sessions_lock:
+                if session_id not in self.ssh_sessions:
+                    return {'success': False, 'error': 'SSH session not found'}
+                ssh_session = self.ssh_sessions[session_id]
+
             output = ssh_session.get_output()
-            
-            # Store output for session
-            if session_id not in self.ssh_session_outputs:
-                self.ssh_session_outputs[session_id] = ""
-            
-            self.ssh_session_outputs[session_id] += output
-            
-            # Check if session is still alive
+
+            with self._sessions_lock:
+                if session_id not in self.ssh_session_outputs:
+                    self.ssh_session_outputs[session_id] = ""
+                self.ssh_session_outputs[session_id] += output
+                full_output = self.ssh_session_outputs[session_id]
+
+            # Check if session is still alive (blocking I/O — outside the lock)
             is_connected = ssh_session.is_alive()
-            
+
             return {
                 'success': True,
                 'output': output,
-                'full_output': self.ssh_session_outputs[session_id],
+                'full_output': full_output,
                 'connected': is_connected
             }
-            
+
         except Exception as e:
             logger.error(f"Error getting SSH output: {e}")
             return {
-                'success': False, 
+                'success': False,
                 'error': 'Failed to get SSH output',
                 'connected': False
             }
     
     def get_ssh_session_status(self, session_id: str) -> Dict[str, Any]:
         try:
-            if session_id not in self.ssh_sessions:
-                return {
-                    'success': False, 
-                    'connected': False,
-                    'error': 'SSH session not found'
-                }
-            
-            ssh_session = self.ssh_sessions[session_id]
+            with self._sessions_lock:
+                if session_id not in self.ssh_sessions:
+                    return {
+                        'success': False,
+                        'connected': False,
+                        'error': 'SSH session not found'
+                    }
+                ssh_session = self.ssh_sessions[session_id]
+
+            # is_alive does blocking I/O — outside the lock
             is_alive = ssh_session.is_alive()
-            
+
             if not is_alive:
                 # Clean up dead session
                 logger.warning(f"SSH session {session_id} is dead, cleaning up")
-                self.ssh_sessions.pop(session_id, None)
-                self.ssh_session_outputs.pop(session_id, None)
-            
+                with self._sessions_lock:
+                    self.ssh_sessions.pop(session_id, None)
+                    self.ssh_session_outputs.pop(session_id, None)
+
             return {
                 'success': True,
                 'connected': is_alive,
                 'session_id': session_id
             }
-            
+
         except Exception as e:
             logger.error(f"Error checking SSH session status: {e}")
             return {
-                'success': False, 
+                'success': False,
                 'connected': False,
                 'error': 'Failed to check session status'
             }
     
-    def disconnect_ssh_session(self, session_id: str, admin_username: str, 
+    def disconnect_ssh_session(self, session_id: str, admin_username: str,
                              ip_address: Optional[str] = None) -> Dict[str, Any]:
         try:
-            if session_id not in self.ssh_sessions:
-                return {'success': False, 'error': 'SSH session not found'}
-            
-            ssh_session = self.ssh_sessions[session_id]
-            server_ip = ssh_session.host
-            
-            # Disconnect session
+            with self._sessions_lock:
+                if session_id not in self.ssh_sessions:
+                    return {'success': False, 'error': 'SSH session not found'}
+                ssh_session = self.ssh_sessions[session_id]
+                server_ip = ssh_session.host
+
+            # Disconnect does blocking I/O — outside the lock
             ssh_session.disconnect()
-            
-            # Clean up
-            del self.ssh_sessions[session_id]
-            if session_id in self.ssh_session_outputs:
-                del self.ssh_session_outputs[session_id]
-            
+
+            with self._sessions_lock:
+                self.ssh_sessions.pop(session_id, None)
+                self.ssh_session_outputs.pop(session_id, None)
+
             # Log SSH disconnection
             self.db.log_audit_event(
                 username=admin_username,
@@ -376,8 +381,10 @@ class SSHService:
     
     def get_ssh_sessions(self) -> List[Dict[str, Any]]:
         try:
+            with self._sessions_lock:
+                snapshot = list(self.ssh_sessions.items())
             sessions = []
-            for session_id, ssh_session in self.ssh_sessions.items():
+            for session_id, ssh_session in snapshot:
                 sessions.append({
                     'session_id': session_id,
                     'host': ssh_session.host,

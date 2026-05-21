@@ -26,6 +26,7 @@ class ConfigValidator:
     def __init__(self):
         self.errors: List[str] = []
         self.warnings: List[str] = []
+        self._strict: bool = True
         
     def validate_all(self, strict: bool = True) -> bool:
         """
@@ -39,7 +40,8 @@ class ConfigValidator:
         """
         self.errors = []
         self.warnings = []
-        
+        self._strict = strict
+
         logger.info("=" * 60)
         logger.info("Starting Configuration Validation")
         logger.info("=" * 60)
@@ -195,14 +197,14 @@ class ConfigValidator:
     def _validate_database_config(self):
         """Validate database configuration."""
         logger.info("Checking database configuration...")
-        
+
         db_vars = [
             'DB_HOST',
-            'DB_USER', 
+            'DB_USER',
             'DB_PASSWORD',
             'DB_NAME',
         ]
-        
+
         missing_db_vars = []
         for var_name in db_vars:
             value = os.getenv(var_name)
@@ -212,9 +214,21 @@ class ConfigValidator:
                 # Mask password in logs
                 display_value = '***' if 'PASSWORD' in var_name else value
                 logger.debug(f"  ✓ {var_name} = {display_value}")
-        
+
         if missing_db_vars:
             self.warnings.append(f"Database variables not set: {', '.join(missing_db_vars)}. Using defaults or SQLite.")
+
+        # Validate that critical passwords are not empty or default
+        for var_name in ('ADMIN_PASSWORD', 'POSTGRES_PASSWORD'):
+            value = os.getenv(var_name)
+            if not value:
+                self.errors.append(f"'{var_name}' is not set")
+            elif value == 'changeme':
+                msg = f"'{var_name}' is set to the default 'changeme' — use a secure password"
+                if self._strict:
+                    self.errors.append(msg)
+                else:
+                    self.warnings.append(msg)
     
     def _is_valid_ip_or_hostname(self, value: str) -> bool:
         """Check if value is a valid IP address or hostname."""

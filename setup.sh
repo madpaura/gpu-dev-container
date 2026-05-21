@@ -147,6 +147,18 @@ cmd_deploy() {
         ok "Created backend/agents.txt"
     fi
 
+    # Refuse to deploy with default 'changeme' passwords
+    local deploy_errors=0
+    for pw_var in POSTGRES_PASSWORD ADMIN_PASSWORD SUDO_PASSWORD; do
+        local pw_val
+        pw_val=$(grep "^${pw_var}=" "$PROJECT_ROOT/.env" 2>/dev/null | cut -d= -f2)
+        if [ "${pw_val}" = "changeme" ]; then
+            fail "${pw_var} is set to 'changeme' — set a secure password in .env before deploying"
+            deploy_errors=$((deploy_errors+1))
+        fi
+    done
+    [ "$deploy_errors" -gt 0 ] && exit 1
+
     echo "Building and starting containers..."
     docker compose -f "$COMPOSE_FILE" build
     docker compose -f "$COMPOSE_FILE" up -d

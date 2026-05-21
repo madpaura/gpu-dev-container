@@ -143,51 +143,52 @@ class UploadService:
     
     def _test_sftp_connection(self, server: Dict[str, Any]) -> Dict[str, Any]:
         """Test SFTP connection to server."""
+        ssh = None
+        sftp = None
+        key_file = None
         try:
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            
+
             connect_kwargs = {
                 'hostname': server['ip_address'],
                 'port': server.get('port', 22),
                 'username': server.get('username'),
                 'timeout': 10
             }
-            
+
             if server.get('ssh_key'):
-                # Use SSH key
                 key_file = tempfile.NamedTemporaryFile(mode='w', delete=False)
                 key_file.write(server['ssh_key'])
                 key_file.close()
                 connect_kwargs['key_filename'] = key_file.name
             elif server.get('password'):
                 connect_kwargs['password'] = server['password']
-            
+
             ssh.connect(**connect_kwargs)
             sftp = ssh.open_sftp()
-            
+
             # Check if base path exists
             try:
                 sftp.stat(server['base_path'])
             except FileNotFoundError:
-                sftp.close()
-                ssh.close()
                 return {'success': False, 'error': f"Base path not found: {server['base_path']}"}
-            
-            sftp.close()
-            ssh.close()
-            
-            if server.get('ssh_key'):
-                os.unlink(key_file.name)
-            
+
             return {'success': True, 'message': 'Connection successful'}
-            
+
         except paramiko.AuthenticationException:
             return {'success': False, 'error': 'Authentication failed'}
         except paramiko.SSHException as e:
             return {'success': False, 'error': f'SSH error: {str(e)}'}
         except Exception as e:
             return {'success': False, 'error': str(e)}
+        finally:
+            if sftp:
+                sftp.close()
+            if ssh:
+                ssh.close()
+            if key_file and os.path.exists(key_file.name):
+                os.unlink(key_file.name)
     
     # ==================== File Operations ====================
     

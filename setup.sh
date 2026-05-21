@@ -340,6 +340,19 @@ show_help() {
     echo "    agent status   Show agent container status"
 }
 
+cmd_nginx_reload() {
+    header "Nginx Reload"
+    NGINX_CFG="$PROJECT_ROOT/backend/nginx/sites-available/dev-services"
+    TRIGGER="$PROJECT_ROOT/backend/nginx/sites-available/.nginx-reload-needed"
+    # Ensure the symlink exists so host nginx reads the project config
+    if [ ! -L /etc/nginx/sites-enabled/dev-services ]; then
+        sudo ln -sf "$NGINX_CFG" /etc/nginx/sites-enabled/dev-services
+        ok "Symlink created: /etc/nginx/sites-enabled/dev-services → $NGINX_CFG"
+    fi
+    sudo nginx -t && sudo nginx -s reload && ok "Nginx reloaded" || fail "Nginx reload failed"
+    rm -f "$TRIGGER"
+}
+
 # ── Dispatch ──────────────────────────────────────────────────
 
 case "${1:-help}" in
@@ -358,13 +371,14 @@ case "${1:-help}" in
             *)       CMD="${1}" ;;
         esac
         case "$CMD" in
-            deploy)  cmd_deploy ;;
-            down)    cmd_down ;;
-            logs)    cmd_logs "${2:-}" ;;
-            status)  cmd_status ;;
-            migrate) cmd_migrate ;;
-            check)   cmd_check ;;
-            *)       show_help; exit 1 ;;
+            deploy)       cmd_deploy ;;
+            down)         cmd_down ;;
+            logs)         cmd_logs "${2:-}" ;;
+            status)       cmd_status ;;
+            migrate)      cmd_migrate ;;
+            check)        cmd_check ;;
+            nginx-reload) cmd_nginx_reload ;;
+            *)            show_help; exit 1 ;;
         esac
         ;;
     *)  show_help; exit 1 ;;

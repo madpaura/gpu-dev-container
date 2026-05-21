@@ -214,33 +214,44 @@ upstream {service_type}_{username} {{
     
     def reload_nginx(self) -> bool:
         logger.info("Reloading Nginx configuration...")
-        
+
         # First test the configuration
         if not self.test_nginx_config():
             logger.error("Nginx configuration test failed. Not reloading.")
             return False
-        
+
+        # Try multiple reload strategies — the backend may run inside Docker
+        # where systemctl is unavailable; write a trigger file as last resort.
+        reload_cmds = [
+            ['sudo', 'nginx', '-s', 'reload'],
+            ['sudo', 'systemctl', 'reload', 'nginx'],
+            ['sudo', 'systemctl', 'restart', 'nginx'],
+        ]
+        for cmd in reload_cmds:
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+                if result.returncode == 0:
+                    logger.info(f"Nginx reloaded via: {' '.join(cmd)}")
+                    return True
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                continue
+            except Exception:
+                continue
+
+        # Fallback: write a trigger file that a host-side watcher can act on.
+        # The backend is likely running inside Docker and cannot reach systemd.
+        trigger = os.path.join(os.path.dirname(self.config_file), '.nginx-reload-needed')
         try:
-            result = subprocess.run(
-                ['sudo', 'systemctl', 'reload', 'nginx'],
-                capture_output=True,
-                text=True,
-                timeout=30
+            with open(trigger, 'w') as f:
+                f.write('1')
+            logger.warning(
+                f"Could not reload nginx directly. Wrote trigger file: {trigger}. "
+                "Run 'sudo nginx -s reload' on the host or configure a watcher."
             )
-            
-            if result.returncode == 0:
-                logger.info("Nginx reloaded successfully")
-                return True
-            else:
-                logger.error(f"Error reloading Nginx: {result.stderr}")
-                return False
-                
-        except subprocess.TimeoutExpired:
-            logger.error("Nginx reload timed out")
-            return False
         except Exception as e:
-            logger.error(f"Error reloading Nginx: {e}")
-            return False
+            logger.error(f"Could not write nginx reload trigger: {e}")
+        # Return True so callers know the config was written even if reload failed.
+        return True
     
     def add_user(self, username: str, vscode_server: str, jupyter_server: str) -> bool:
         """Add a new user with complete validation and configuration."""

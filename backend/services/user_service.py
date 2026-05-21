@@ -527,7 +527,7 @@ class UserService:
                 }
                 
                 if user.get('is_approved') and not no_container_needed:
-                    mgmt_server = os.getenv('MGMT_SERVER_IP', 'localhost')
+                    mgmt_server = os.getenv('SERVER_PUBLIC_IP') or os.getenv('MGMT_SERVER_IP', 'localhost')
                     username = user['username']
                     
                     # Check if nginx routes are configured

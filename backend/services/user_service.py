@@ -22,10 +22,11 @@ class UserService:
         self.agent_port = agent_port
         self.password_reset_repo = PasswordResetRepository()
     
-    def _parse_user_metadata(self, metadata_raw: Optional[str]) -> Dict[str, Any]:
+    def _parse_user_metadata(self, metadata_raw) -> Dict[str, Any]:
         if not metadata_raw:
             return {}
-            
+        if isinstance(metadata_raw, dict):
+            return metadata_raw
         try:
             metadata = json.loads(metadata_raw)
             if isinstance(metadata, str):
@@ -34,19 +35,6 @@ class UserService:
         except (json.JSONDecodeError, TypeError) as e:
             logger.warning(f"Error parsing metadata: {e}")
             return {}
-    
-    def _get_server_ip_from_assignment(self, server_assignment: str) -> Optional[str]:
-        """Extract server IP from server assignment string."""
-        try:
-            # Server assignment format: "server_name (IP: x.x.x.x)"
-            if "IP:" in server_assignment:
-                ip_part = server_assignment.split("IP:")[1].strip()
-                ip = ip_part.rstrip(")")
-                return ip
-            return None
-        except Exception as e:
-            logger.warning(f"Error parsing server assignment: {e}")
-            return None
     
     def get_all_users(self) -> List[Dict[str, Any]]:
         try:

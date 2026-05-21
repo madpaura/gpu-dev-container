@@ -274,7 +274,7 @@ def admin_recreate_user_container(user_id):
             _db.update_user(int(user_id), {
                 'is_approved': True,
                 'redirect_url': f"http://{server_ip}:{_agent_port}",
-                'metadata': json.dumps(metadata),
+                'metadata': metadata,
             })
             _db.log_audit_event(admin_username, 'admin_container_create',
                 {'message': f'Admin {admin_username} created container for {target_username}',

@@ -21,7 +21,7 @@ fi
 
 # Build the Docker image
 echo "Building Docker image..."
-docker build -t gpu-dev-environment .
+DOCKER_BUILDKIT=1 docker build -t gpu-dev-environment .
 
 if [ $? -eq 0 ]; then
     echo ""

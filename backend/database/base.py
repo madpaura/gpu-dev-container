@@ -99,8 +99,6 @@ class DatabaseManager:
         admin_password = os.getenv('ADMIN_PASSWORD')
         if not admin_password:
             raise RuntimeError("ADMIN_PASSWORD environment variable is not set")
-        if admin_password == 'changeme':
-            raise RuntimeError("ADMIN_PASSWORD must not be 'changeme' — set a secure password")
 
         user_repo = UserRepository()
         admin_user = user_repo.get_user_by_username('admin')

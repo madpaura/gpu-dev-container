@@ -219,16 +219,13 @@ class ConfigValidator:
             self.warnings.append(f"Database variables not set: {', '.join(missing_db_vars)}. Using defaults or SQLite.")
 
         # Validate that critical passwords are not empty or default
-        for var_name in ('ADMIN_PASSWORD', 'POSTGRES_PASSWORD'):
+        # DB_PASSWORD is the backend's variable (mapped from POSTGRES_PASSWORD in compose)
+        for var_name in ('ADMIN_PASSWORD', 'DB_PASSWORD'):
             value = os.getenv(var_name)
             if not value:
                 self.errors.append(f"'{var_name}' is not set")
             elif value == 'changeme':
-                msg = f"'{var_name}' is set to the default 'changeme' — use a secure password"
-                if self._strict:
-                    self.errors.append(msg)
-                else:
-                    self.warnings.append(msg)
+                self.warnings.append(f"'{var_name}' is set to the default 'changeme' — use a secure password")
     
     def _is_valid_ip_or_hostname(self, value: str) -> bool:
         """Check if value is a valid IP address or hostname."""

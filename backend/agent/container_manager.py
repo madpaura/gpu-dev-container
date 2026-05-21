@@ -552,8 +552,6 @@ class DockerHelper:
             "TZ": "Etc/UTC",
             "DEFAULT_WORKSPACE": os.getenv("DEFAULT_WORKSPACE", "/config/workspace"),
             "SUDO_PASSWORD": os.getenv("SUDO_PASSWORD") or _warn_missing_sudo_password(),
-            "JUPYTER_BASE_URL": f"/user/{username}/jupyter",
-            "JUPYTERHUB_SERVICE_PREFIX": f"/user/{username}/jupyter/",
         }
         
         # Setup volume paths
@@ -865,6 +863,34 @@ def init_backend_routes(app):
         existing_container = docker_manager.list_container(container_name)
         if existing_container:
             logger.info(f"Container {container_name} already exists, returning existing container info")
+            # Fix .local permissions even for existing containers
+            workspace_path_host = os.path.join(dir_deploy, "workspace")
+            local_root = os.path.join(workspace_path_host, ".local")
+            local_share = os.path.join(workspace_path_host, ".local", "share")
+            for rel_dir in ["jupyter/runtime", "notebooks"]:
+                dir_path = os.path.join(local_share, rel_dir)
+                try:
+                    os.makedirs(dir_path, exist_ok=True)
+                except PermissionError:
+                    subprocess.run(["sudo", "mkdir", "-p", dir_path], check=True)
+                except Exception:
+                    pass
+            if os.path.exists(local_root):
+                try:
+                    for dirpath, dirnames, _ in os.walk(local_root):
+                        os.chown(dirpath, 1000, 1000)
+                except PermissionError:
+                    subprocess.run(["sudo", "chown", "-R", "1000:1000", local_root], check=True)
+                except Exception as e:
+                    logger.warning(f"Could not chown {local_root}: {e}")
+            # Start the container if it is not already running
+            if existing_container.status != "running":
+                try:
+                    existing_container.start()
+                    existing_container.reload()
+                    logger.info(f"Started existing container {container_name}")
+                except Exception as e:
+                    logger.warning(f"Could not start existing container {container_name}: {e}")
             return jsonify(
                 {
                     "success": True,

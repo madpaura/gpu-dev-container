@@ -546,12 +546,14 @@ class DockerHelper:
             Dict with container configuration including env, volumes, ports, etc.
         """
         # Setup environment variables
+        jupyter_base = f"/user/{username}/jupyter"
         env = {
             "PUID": os.geteuid(),
             "PGID": os.getegid(),
             "TZ": "Etc/UTC",
             "DEFAULT_WORKSPACE": os.getenv("DEFAULT_WORKSPACE", "/config/workspace"),
             "SUDO_PASSWORD": os.getenv("SUDO_PASSWORD") or _warn_missing_sudo_password(),
+            "JUPYTER_BASE_URL": jupyter_base,
         }
         
         # Setup volume paths

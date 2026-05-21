@@ -28,7 +28,7 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python && \
     ln -sf /usr/bin/pip3 /usr/bin/pip
 
 # Install code-server (VS Code Server)
-RUN curl -fsSL https://code-server.dev/install.sh | sh
+RUN curl -fsSL https://code-server.dev/install.sh | sh -s -- --version 4.121.0
 
 # Install JupyterLab and comprehensive data science packages
 RUN pip install --no-cache-dir \
@@ -112,30 +112,23 @@ WORKDIR /home/developer
 # 8888 for Jupyter Server
 EXPOSE 8080 8888
 
-# Create startup script with dynamic base URL support
-RUN echo '#!/bin/bash\n\
-echo "Starting VS Code Server on port 8080..."\n\
-mkdir -p .config/code-server\n\
-echo "bind-addr: 0.0.0.0:8080\n\
-auth: none\n\
-cert: false" > .config/code-server/config.yaml\n\
-code-server &\n\
-echo "Starting Jupyter Server on port 8888..."\n\
-# Use JUPYTER_BASE_URL environment variable if set, otherwise default\n\
-JUPYTER_BASE_URL=${JUPYTER_BASE_URL:-""}\n\
-if [ -n "$JUPYTER_BASE_URL" ]; then\n\
-    echo "Starting Jupyter with base URL: $JUPYTER_BASE_URL"\n\
-    jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root \\\n\
-        --ServerApp.token='"'"''"'"' --ServerApp.password='"'"''"'"' \\\n\
-        --ServerApp.base_url="$JUPYTER_BASE_URL" \\\n\
-        --ServerApp.allow_origin="*" \\\n\
-        --ServerApp.disable_check_xsrf=True \\\n\
-        --LabApp.base_url="$JUPYTER_BASE_URL"\n\
-else\n\
-    echo "Starting Jupyter with default configuration"\n\
-    jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root \\\n\
-        --ServerApp.token='"'"''"'"' --ServerApp.password='"'"''"'"'\n\
-fi\n\
-wait' > /tmp/start.sh && chmod +x /tmp/start.sh
+# Create startup script
+RUN cat > /tmp/start.sh << 'SCRIPT'
+#!/bin/bash
+echo "Starting VS Code Server on port 8080..."
+mkdir -p .config/code-server
+printf 'bind-addr: 0.0.0.0:8080\nauth: none\ncert: false\n' > .config/code-server/config.yaml
+mkdir -p /home/developer/.local/share/code-server/User
+if [ ! -f /home/developer/.local/share/code-server/User/settings.json ]; then
+    printf '{\n  "jupyter.jupyterServerType": "remote",\n  "jupyter.serverConnectionSettings": {\n    "baseUrl": "http://localhost:8888",\n    "token": ""\n  }\n}\n' > /home/developer/.local/share/code-server/User/settings.json
+fi
+code-server &
+echo "Starting Jupyter Server on port 8888..."
+exec jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root \
+    --ServerApp.token='' --ServerApp.password='' \
+    --ServerApp.allow_origin='*' \
+    --ServerApp.disable_check_xsrf=True
+SCRIPT
+RUN chmod +x /tmp/start.sh
 
 CMD ["/tmp/start.sh"]

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,7 +9,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
-import { containerApi, ContainerInfo, ContainerListResponse } from '@/lib/container-api';
+import { containerApi, ContainerInfo } from '@/lib/container-api';
 import { serverApi, ServerInfo } from '@/lib/api';
 import { 
   Search, 
@@ -52,6 +52,8 @@ function AdminContainerManager() {
   const [selectedContainer, setSelectedContainer] = useState<ContainerInfo | null>(null);
   const [showVolumeDetails, setShowVolumeDetails] = useState(false);
   
+  const streamAbortRef = useRef<AbortController | null>(null);
+
   // Container stats
   const [totalCount, setTotalCount] = useState(0);
   const [runningCount, setRunningCount] = useState(0);
@@ -79,7 +81,16 @@ function AdminContainerManager() {
       loadContainers();
     }
   }, [selectedServer]);
-  
+
+  // Abort stream on unmount
+  useEffect(() => {
+    return () => {
+      if (streamAbortRef.current) {
+        streamAbortRef.current.abort();
+      }
+    };
+  }, []);
+
   // Filter and sort containers
   useEffect(() => {
     let filtered = containers;
@@ -133,30 +144,54 @@ function AdminContainerManager() {
   
   const loadContainers = async () => {
     if (!selectedServer) return;
-    
+
+    // Abort any in-flight stream
+    if (streamAbortRef.current) {
+      streamAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+
     setLoading(true);
     setError(null);
-    
+    setContainers([]);
+    setTotalCount(0);
+    setRunningCount(0);
+    setStoppedCount(0);
+
+    const serverId = selectedServer.replace(/\./g, '-');
+
     try {
-      const serverId = selectedServer.replace(/\./g, '-');
-      const response = await containerApi.getContainers(serverId, undefined, user?.token);
-      
-      if (response.success) {
-        setContainers(response.containers);
-        setTotalCount(response.total_count);
-        setRunningCount(response.running_count);
-        setStoppedCount(response.stopped_count);
-      } else {
-        setError(response.error || 'Failed to load containers');
-        setContainers([]);
-        setTotalCount(0);
-        setRunningCount(0);
-        setStoppedCount(0);
+      await containerApi.streamContainers(
+        serverId,
+        user?.token ?? '',
+        (total) => setTotalCount(total),
+        (container) => {
+          setContainers((prev) => {
+            const updated = [...prev, container];
+            const running = updated.filter((c) => c.status === 'running').length;
+            setRunningCount(running);
+            setStoppedCount(updated.length - running);
+            return updated;
+          });
+        },
+        (runningCount) => {
+          // Final counts from done message — reconcile
+          setRunningCount(runningCount);
+          setContainers((prev) => {
+            setStoppedCount(prev.length - runningCount);
+            return prev;
+          });
+        },
+        (err) => {
+          if (err !== 'AbortError') setError(err);
+        },
+        controller.signal
+      );
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name !== 'AbortError') {
+        setError(err.message);
       }
-    } catch (error) {
-      console.error('Error loading containers:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load containers');
-      setContainers([]);
     } finally {
       setLoading(false);
     }
@@ -503,7 +538,7 @@ function AdminContainerManager() {
               </div>
             </CardHeader>
             <CardContent>
-              {loading ? (
+              {loading && containers.length === 0 ? (
                 <div className="flex items-center justify-center py-8">
                   <RefreshCw className="h-6 w-6 animate-spin mr-2" />
                   Loading containers...
@@ -520,6 +555,12 @@ function AdminContainerManager() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
+                  {loading && (
+                    <div className="flex items-center text-sm text-muted-foreground pb-2">
+                      <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+                      Loading... ({containers.length}{totalCount > 0 ? ` of ${totalCount}` : ''} so far)
+                    </div>
+                  )}
                   <Table>
                     <TableHeader>
                       <TableRow>

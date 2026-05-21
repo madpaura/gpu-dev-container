@@ -110,6 +110,56 @@ export const containerApi = {
     return response.json();
   },
 
+  streamContainers: async (
+    serverId: string,
+    token: string,
+    onMeta: (total: number) => void,
+    onContainer: (container: ContainerInfo) => void,
+    onDone: (runningCount: number) => void,
+    onError: (error: string) => void,
+    signal?: AbortSignal
+  ): Promise<void> => {
+    const response = await fetch(`${API_BASE_URL}/admin/containers/${serverId}/stream`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      signal,
+    });
+
+    if (!response.ok) {
+      onError(`HTTP ${response.status}`);
+      return;
+    }
+
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const msg = JSON.parse(line);
+            if (msg.type === 'meta') onMeta(msg.total);
+            else if (msg.type === 'container') onContainer(msg.data as ContainerInfo);
+            else if (msg.type === 'done') onDone(msg.running_count);
+            else if (msg.type === 'error') onError(msg.error);
+          } catch {
+            // skip malformed lines
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  },
+
   clearCache: async (token?: string): Promise<{ success: boolean; message: string }> => {
     const response = await fetch(`${API_BASE_URL}/admin/containers/cache/clear`, {
       method: 'POST',

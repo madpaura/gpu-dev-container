@@ -7,6 +7,7 @@ from services.container_service import ContainerService
 from services.agent_service import AgentService
 from utils.auth_helpers import require_session_auth
 
+import json as _json
 import os
 
 container_bp = Blueprint('container', __name__)
@@ -84,6 +85,36 @@ def get_containers(server_id):
     except Exception as e:
         logger.error(f"Error in get_containers: {e}")
         return jsonify({'success': False, 'error': str(e), 'containers': []}), 500
+
+
+@container_bp.route('/api/admin/containers/<server_id>/stream', methods=['GET'])
+def get_containers_stream(server_id):
+    session, error_response, status_code = require_session_auth()
+    if error_response:
+        return error_response, status_code
+
+    server_ip = _server_id_to_ip(server_id)
+
+    def _proxy():
+        try:
+            import requests as _requests
+            resp = _requests.get(
+                f"http://{server_ip}:{agent_port}/get_containers_stream",
+                stream=True,
+                timeout=120
+            )
+            for line in resp.iter_lines():
+                if line:
+                    yield line.decode('utf-8') + '\n'
+        except Exception as e:
+            yield _json.dumps({'type': 'error', 'error': str(e)}) + '\n'
+
+    from flask import Response as _Response
+    return _Response(
+        _proxy(),
+        mimetype='application/x-ndjson',
+        headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'}
+    )
 
 
 @container_bp.route('/api/admin/containers/<server_id>/<container_id>/action', methods=['POST'])

@@ -34,16 +34,12 @@ rm -f /etc/nginx/sites-enabled/default
 # Copy systemd service files
 echo "Installing systemd services..."
 cp dev-services-nginx.service /etc/systemd/system/
-cp nginx-reload-watcher.path /etc/systemd/system/
-cp nginx-reload-watcher.service /etc/systemd/system/
 
 # Reload systemd
 systemctl daemon-reload
 
 # Enable services
 systemctl enable dev-services-nginx
-systemctl enable nginx-reload-watcher.path
-systemctl start nginx-reload-watcher.path
 
 # Test nginx configuration
 echo "Testing Nginx configuration..."

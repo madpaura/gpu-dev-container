@@ -110,6 +110,24 @@ services:
     depends_on:
       - backend
 
+  # Sidecar that reloads host nginx when the backend writes a trigger file.
+  # Uses nsenter to enter the host's PID/mount namespaces and run nginx -s reload directly.
+  nginx-reloader:
+    image: alpine:latest
+    container_name: gpu-dash-nginx-reloader
+    pid: "host"
+    privileged: true
+    volumes:
+      - ./backend/nginx/sites-available:/watch
+    command: >
+      sh -c 'while true; do
+        if [ -f /watch/.nginx-reload-needed ]; then
+          nsenter -t 1 -m -u -i -n -p -- nginx -s reload && rm -f /watch/.nginx-reload-needed;
+        fi;
+        sleep 1;
+      done'
+    restart: unless-stopped
+
 networks:
   gpu-dash-net:
     driver: bridge

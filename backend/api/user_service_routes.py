@@ -58,7 +58,7 @@ def get_user_services():
             except Exception as e:
                 logger.debug(f"Could not fetch real-time container status for {username}: {e}")
 
-        mgmt_server = os.getenv('MGMT_SERVER_IP')
+        mgmt_server = os.getenv('MGMT_SERVER_IP', 'localhost')
         services = {k: {'available': False, 'url': None, 'status': 'stopped'}
                     for k in ('vscode', 'jupyter', 'intellij', 'terminal')}
 

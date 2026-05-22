@@ -29,8 +29,8 @@ agent_service.log
 *.sqlite
 port_manager.db
 
-# Environment files (will be passed as env vars)
-# .env
+# Environment files (passed as env vars by docker-compose, never bake into image)
+.env
 
 # Git
 .git/

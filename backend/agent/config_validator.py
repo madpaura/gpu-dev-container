@@ -181,7 +181,7 @@ def validate_agent_config(strict: bool = True) -> bool:
 if __name__ == '__main__':
     # Run validation when script is executed directly
     from dotenv import load_dotenv
-    load_dotenv(".env", override=True)
+    load_dotenv()
     
     try:
         validate_agent_config(strict=True)

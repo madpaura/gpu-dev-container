@@ -18,7 +18,7 @@ import json
 import dateutil.parser
 from datetime import datetime
 
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'), override=True)
+load_dotenv()
 manager_ip = os.getenv("MGMT_SERVER_IP")
 manager_port = int(os.getenv("MGMT_SERVER_PORT"))
 url = f"http://{manager_ip}:{manager_port}"

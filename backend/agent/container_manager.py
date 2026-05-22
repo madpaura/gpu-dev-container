@@ -23,7 +23,7 @@ PORT_OFFSETS = {'code': 0, 'jupyter': 1, 'ssh': 2, 'vnc': 3, 'coder': 4}
 logger.add("agent_service.log", rotation="500 MB", retention="10 days", level="INFO")
 
 # Load environment variables
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'), override=True)
+load_dotenv()
 
 class DockerContainerManager:
     def __init__(self):

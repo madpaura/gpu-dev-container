@@ -29,6 +29,11 @@ services:
       # Jupyter configuration
       JUPYTER_PORT: ${JUPYTER_PORT:-8888}
 
+      # Guest OS configuration
+      GUEST_OS_SSH_PORT: ${GUEST_OS_SSH_PORT:-2222}
+      GUEST_OS_SPICE_PORT: ${GUEST_OS_SPICE_PORT:-3007}
+      GUEST_OS_LIST: ${GUEST_OS_LIST:-}
+
       # Paths
       QVP_BINARY_MOUNT: ${QVP_BINARY_MOUNT:-/opt/qvp}
       GUEST_OS_MOUNT: ${GUEST_OS_MOUNT:-/opt/os/guestos}

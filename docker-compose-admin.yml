@@ -33,9 +33,8 @@ services:
       DB_NAME: ${POSTGRES_DB:-gpu_dash}
 
       # Server configuration
-      MGMT_SERVER_PORT: 8500
-      MGMT_SERVER_IP: 0.0.0.0
-      SERVER_PUBLIC_IP: ${MGMT_SERVER_IP:-localhost}
+      MGMT_SERVER_PORT: ${MGMT_SERVER_PORT:-8500}
+      MGMT_SERVER_IP: ${MGMT_SERVER_IP:-localhost}
 
       # Agent configuration
       AGENT_PORT: ${AGENT_PORT:-8510}

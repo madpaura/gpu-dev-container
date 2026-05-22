@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from loguru import logger
 
 # Load environment variables
-load_dotenv(".env", override=True)
+load_dotenv()
 
 # Validate configuration before starting
 from config_validator import validate_agent_config, ConfigValidationError

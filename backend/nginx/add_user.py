@@ -215,13 +215,8 @@ upstream {service_type}_{username} {{
     def reload_nginx(self) -> bool:
         logger.info("Reloading Nginx configuration...")
 
-        # First test the configuration
-        if not self.test_nginx_config():
-            logger.error("Nginx configuration test failed. Not reloading.")
-            return False
-
-        # Try multiple reload strategies — the backend may run inside Docker
-        # where systemctl is unavailable; write a trigger file as last resort.
+        # Try multiple reload strategies — the backend runs inside Docker
+        # where nginx and systemctl are unavailable; write a trigger file as last resort.
         reload_cmds = [
             ['sudo', 'nginx', '-s', 'reload'],
             ['sudo', 'systemctl', 'reload', 'nginx'],

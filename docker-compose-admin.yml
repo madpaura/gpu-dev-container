@@ -8,6 +8,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-gpu_dash}
       POSTGRES_USER: ${POSTGRES_USER:-gpu_dash}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - ${PG_DATA_VOLUME:-./volumes/postgres}:/var/lib/postgresql/data
     networks:
@@ -27,7 +29,7 @@ services:
     environment:
       # Database configuration (PostgreSQL via service name)
       DB_HOST: postgres
-      DB_PORT: 5432
+      DB_PORT: ${POSTGRES_PORT:-5432}
       DB_USER: ${POSTGRES_USER:-gpu_dash}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       DB_NAME: ${POSTGRES_DB:-gpu_dash}

@@ -29,7 +29,7 @@ services:
     environment:
       # Database configuration (PostgreSQL via service name)
       DB_HOST: postgres
-      DB_PORT: ${POSTGRES_PORT:-5432}
+      DB_PORT: 5432
       DB_USER: ${POSTGRES_USER:-gpu_dash}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       DB_NAME: ${POSTGRES_DB:-gpu_dash}

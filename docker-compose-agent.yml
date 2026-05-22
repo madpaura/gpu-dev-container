@@ -52,8 +52,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Agent logs
       - ./backend/agent/logs:/app/logs
-      # Port manager database (persistent)
-      - ./backend/agent/port_manager.db:/app/port_manager.db
+      # Port allocations — persisted across agent restarts
+      - ./backend/agent/port_allocations.json:/app/port_allocations.json
+      - ./backend/agent/port_settings.json:/app/port_settings.json
     network_mode: "host"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8510/health"]

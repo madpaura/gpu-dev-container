@@ -1,12 +1,1 @@
-{
-  "port_range": {
-    "start": 10000,
-    "end": 65535,
-    "default_range_size": 10
-  },
-  "metadata": {
-    "description": "Port allocation settings for container services",
-    "version": "1.0",
-    "last_updated": "2025-08-29T10:36:48+05:30"
-  }
-}
+{"port_range":{"start":10000,"end":65535,"default_range_size":10}}
